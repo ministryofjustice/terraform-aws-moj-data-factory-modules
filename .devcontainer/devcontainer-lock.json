@@ -1,0 +1,14 @@
+{
+  "features": {
+    "ghcr.io/ministryofjustice/devcontainer-feature/astral:": {
+      "version": "1.0.1",
+      "resolved": "ghcr.io/ministryofjustice/devcontainer-feature/astral@sha256:8ee1cd600c19e2c6ac841dccdebd135a628680ca4aeca70f1ff74b1afe153645",
+      "integrity": "sha256:8ee1cd600c19e2c6ac841dccdebd135a628680ca4aeca70f1ff74b1afe153645"
+    },
+    "ghcr.io/ministryofjustice/devcontainer-feature/terraform:": {
+      "version": "1.3.0",
+      "resolved": "ghcr.io/ministryofjustice/devcontainer-feature/terraform@sha256:55bade53f374bd8600e59b8333d28bef2ab94f501576ad462c8caddfe977387e",
+      "integrity": "sha256:55bade53f374bd8600e59b8333d28bef2ab94f501576ad462c8caddfe977387e"
+    }
+  }
+}
