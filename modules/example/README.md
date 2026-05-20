@@ -48,7 +48,7 @@ No resources.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_additional_tags"></a> [additional\_tags](#input\_additional\_tags) | Extra tags to merge with the module defaults | `map(string)` | `{}` | no |
-| <a name="input_environment"></a> [environment](#input\_environment) | Environment identifier | `string` | n/a | yes |
+| <a name="input_environment"></a> [environment](#input\_environment) | Environment identifier (for example: dev, test, preprod, prod) | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | Name used for tagging and module outputs | `string` | n/a | yes |
 
 ## Outputs
