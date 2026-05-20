@@ -21,6 +21,10 @@ The modules in this repository are designed to:
 
 As the repository grows, each module should include clear inputs, outputs, usage examples, and versioning guidance.
 
+## Available Modules
+
+- [example](modules/example/README.md): starter module that demonstrates structure, inputs, outputs, and tagging conventions
+
 ## Usage
 
 Terraform modules from this repository can be consumed in downstream infrastructure code by referencing the module source and version.
