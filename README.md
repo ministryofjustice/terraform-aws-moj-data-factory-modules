@@ -21,6 +21,10 @@ The modules in this repository are designed to:
 
 As the repository grows, each module should include clear inputs, outputs, usage examples, and versioning guidance.
 
+## Available Modules
+
+- [example](modules/example/README.md): starter module that demonstrates structure, inputs, outputs, and tagging conventions
+
 ## Usage
 
 Terraform modules from this repository can be consumed in downstream infrastructure code by referencing the module source and version.
@@ -29,9 +33,9 @@ Example:
 
 ```hcl
 module "example" {
-	source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/example?ref=v1.0.0"
+  source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/example?ref=v1.0.0"
 
-	# module inputs...
+  # module inputs...
 }
 ```
 
@@ -47,3 +51,6 @@ Contributions should follow standard MoJ engineering practices:
 ## License
 
 This project is licensed under the terms of the [MIT License](LICENSE).
+
+<!-- BEGIN_TF_DOCS -->
+<!-- END_TF_DOCS -->
