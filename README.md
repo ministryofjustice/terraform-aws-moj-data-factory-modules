@@ -51,3 +51,6 @@ Contributions should follow standard MoJ engineering practices:
 ## License
 
 This project is licensed under the terms of the [MIT License](LICENSE).
+
+<!-- BEGIN_TF_DOCS -->
+<!-- END_TF_DOCS -->
