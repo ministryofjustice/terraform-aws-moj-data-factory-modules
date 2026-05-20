@@ -33,9 +33,9 @@ Example:
 
 ```hcl
 module "example" {
-	source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/example?ref=v1.0.0"
+  source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/example?ref=v1.0.0"
 
-	# module inputs...
+  # module inputs...
 }
 ```
 

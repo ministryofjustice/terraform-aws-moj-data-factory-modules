@@ -4,7 +4,7 @@
   "features": {
     "ghcr.io/ministryofjustice/devcontainer-feature/astral:": {},
     "ghcr.io/ministryofjustice/devcontainer-feature/terraform:": {
-      "terraformDocsVersion": "v0.20.0"
+      "terraformDocsVersion": "v0.23.0"
     }
   },
   "customizations": {
