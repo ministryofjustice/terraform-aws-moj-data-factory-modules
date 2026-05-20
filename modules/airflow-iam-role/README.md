@@ -4,6 +4,37 @@ Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platfo
 
 The generated role name is `airflow-<account>-<role_name_suffix>`, where `<account>` is `prod` for `production` and `preproduction`, `test` for `test`, and `dev` for `development`. `<role_name_suffix>` is appended with `-pp` when `<account>` is `preproduction` to avoid name clash. This role name can be inserted into the given Airflow workflow file in the [`analytical-platform-airflow` repository](https://github.com/ministryofjustice/analytical-platform-airflow/) under `iam: external_role:` (see documentation [here](https://user-guidance.analytical-platform.service.justice.gov.uk/services/airflow/#external-iam-roles)).
 
+## Usage
+
+```hcl
+module "data_platform_airflow_iam_role" {
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/airflow-iam-role?ref=v1.0.0"
+
+  application_name   = local.application_name
+  environment        = local.environment
+  oidc_arn           = aws_iam_openid_connect_provider.analytical_platform_compute.arn
+  role_name_suffix   = "data-ingestion"
+  role_description   = "Example IAM role for an Airflow workflow"
+  secret_code        = jsondecode(data.aws_secretsmanager_secret_version.airflow_secret.secret_string)["oidc_cluster_identifier"]
+
+  iam_policy_documents = [
+    jsonencode({
+      Version = "2012-10-17"
+      Statement = [
+        {
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject"
+          ]
+          Resource = "arn:aws:s3:::some-example-bucket/*"
+        }
+      ]
+    })
+  ]
+}
+```
+
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 

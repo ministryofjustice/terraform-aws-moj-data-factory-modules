@@ -23,7 +23,10 @@ As the repository grows, each module should include clear inputs, outputs, usage
 
 ## Available Modules
 
-- [example](modules/example/README.md): starter module that demonstrates structure, inputs, outputs, and tagging conventions
+| Module | Description |
+|--------|-------------|
+| [example](modules/example/README.md) | This module is a simple starter that demonstrates typical module structure and conventions for this repository. |
+| [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including trust policy, optional managed policies, and optional inline policies. |
 
 ## Usage
 
