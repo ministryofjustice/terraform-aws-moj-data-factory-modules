@@ -23,9 +23,13 @@ As the repository grows, each module should include clear inputs, outputs, usage
 
 ## Available Modules
 
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
 | Module | Description |
 |--------|-------------|
 | [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including trust policy, optional managed policies, and optional inline policies. |
+<!-- markdownlint-enable -->
+<!-- prettier-ignore-end -->
 
 ## Usage
 
