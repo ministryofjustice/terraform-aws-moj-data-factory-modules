@@ -33,8 +33,8 @@ variable "oidc_arn" {
   type        = string
 }
 
-variable "secret_code" {
-  description = "OIDC issuer ID segment used in condition keys"
+variable "oidc_cluster_identifier" {
+  description = "OIDC cluster identifier used in condition keys"
   type        = string
 }
 

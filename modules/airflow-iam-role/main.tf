@@ -30,12 +30,12 @@ data "aws_iam_policy_document" "oidc_assume_role_policy" {
     condition {
       test     = "StringEquals"
       values   = ["system:serviceaccount:${local.mwaa}"]
-      variable = "oidc.eks.eu-west-2.amazonaws.com/id/${var.secret_code}:sub"
+      variable = "oidc.eks.eu-west-2.amazonaws.com/id/${var.oidc_cluster_identifier}:sub"
     }
     condition {
       test     = "StringEquals"
       values   = ["sts.amazonaws.com"]
-      variable = "oidc.eks.eu-west-2.amazonaws.com/id/${var.secret_code}:aud"
+      variable = "oidc.eks.eu-west-2.amazonaws.com/id/${var.oidc_cluster_identifier}:aud"
     }
   }
 }

@@ -20,7 +20,7 @@ module "data_platform_airflow_iam_role" {
   oidc_arn           = aws_iam_openid_connect_provider.analytical_platform_compute.arn
   role_name_suffix   = "data-ingestion"
   role_description   = "Example IAM role for an Airflow workflow"
-  secret_code        = jsondecode(data.aws_secretsmanager_secret_version.airflow_secret.secret_string)["oidc_cluster_identifier"]
+  oidc_cluster_identifier = jsondecode(data.aws_secretsmanager_secret_version.airflow_secret.secret_string)["oidc_cluster_identifier"]
 
   iam_policy_documents = [
     jsonencode({
@@ -79,9 +79,9 @@ No modules.
 | <a name="input_iam_policy_documents"></a> [iam\_policy\_documents](#input\_iam\_policy\_documents) | List of IAM policy JSON documents to create and attach to the role | `list(string)` | `[]` | no |
 | <a name="input_max_session_duration"></a> [max\_session\_duration](#input\_max\_session\_duration) | Maximum session duration in seconds | `number` | `3600` | no |
 | <a name="input_oidc_arn"></a> [oidc\_arn](#input\_oidc\_arn) | ARN of the OIDC identity provider | `string` | n/a | yes |
+| <a name="input_oidc_cluster_identifier"></a> [oidc\_cluster\_identifier](#input\_oidc\_cluster\_identifier) | OIDC cluster identifier used in condition keys | `string` | n/a | yes |
 | <a name="input_role_description"></a> [role\_description](#input\_role\_description) | Description of the IAM role | `string` | n/a | yes |
 | <a name="input_role_name_suffix"></a> [role\_name\_suffix](#input\_role\_name\_suffix) | Suffix used when constructing the IAM role name | `string` | n/a | yes |
-| <a name="input_secret_code"></a> [secret\_code](#input\_secret\_code) | OIDC issuer ID segment used in condition keys | `string` | n/a | yes |
 
 ## Outputs
 
