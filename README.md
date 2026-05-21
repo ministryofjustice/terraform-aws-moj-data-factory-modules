@@ -25,7 +25,6 @@ As the repository grows, each module should include clear inputs, outputs, usage
 
 | Module | Description |
 |--------|-------------|
-| [example](modules/example/README.md) | This module is a simple starter that demonstrates typical module structure and conventions for this repository. |
 | [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including trust policy, optional managed policies, and optional inline policies. |
 
 ## Usage
@@ -36,7 +35,7 @@ Example:
 
 ```hcl
 module "example" {
-  source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/example?ref=v1.0.0"
+  source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/<module name>?ref=<git hash>"
 
   # module inputs...
 }
