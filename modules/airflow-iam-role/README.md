@@ -4,7 +4,7 @@ Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platfo
 
 The generated role name is `airflow-<account>-<role_name_suffix>`, where `<account>` is `prod` for `production` and `preproduction`, `test` for `test`, and `dev` for `development`.
 `<role_name_suffix>` is appended with `-pp` when `<account>` is `preproduction` to avoid name clash.
-This role name can be inserted into the given Airflow workflow file in the [`analytical-platform-airflow` repository](https://github.com/ministryofjustice/analytical-platform-airflow/) under `iam: external_role:` (see documentation [here](https://user-guidance.analytical-platform.service.justice.gov.uk/services/airflow/#external-iam-roles)).
+This role name can be inserted into the given Airflow workflow file in the `analytical-platform-airflow` [repository](https://github.com/ministryofjustice/analytical-platform-airflow/) under `iam: external_role:` (see documentation [here](https://user-guidance.analytical-platform.service.justice.gov.uk/services/airflow/#external-iam-roles)).
 
 ## Usage
 
