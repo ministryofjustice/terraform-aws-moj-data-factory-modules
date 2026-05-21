@@ -1,5 +1,5 @@
 locals {
-  account_map = {
+  airflow_env = {
     "production"    = "prod"
     "preproduction" = "prod"
     "test"          = "test"
@@ -11,9 +11,8 @@ locals {
     "test"          = ""
     "development"   = ""
   }
-  role_name_suffix = var.environment == "preproduction" ? trimsuffix(var.role_name_suffix, "-pp") : var.role_name_suffix
-  mwaa             = "mwaa:${var.application_name}${local.env_suffixes[var.environment]}-${local.role_name_suffix}"
-  role_name        = "airflow-${local.account_map[var.environment]}-${local.role_name_suffix}"
+  mwaa      = "mwaa:${var.application_name}-${var.role_name_suffix}${local.env_suffixes[var.environment]}"
+  role_name = "airflow-${local.airflow_env[var.environment]}-${var.role_name_suffix}${local.env_suffixes[var.environment]}"
 }
 
 # --------------------------------------------
@@ -45,7 +44,7 @@ data "aws_iam_policy_document" "oidc_assume_role_policy" {
 # define the role
 # -----------------------------
 
-resource "aws_iam_role" "role_ap_airflow" {
+resource "aws_iam_role" "airflow_role" {
   name                  = local.role_name
   description           = var.role_description
   assume_role_policy    = data.aws_iam_policy_document.oidc_assume_role_policy.json
@@ -53,7 +52,7 @@ resource "aws_iam_role" "role_ap_airflow" {
   max_session_duration  = var.max_session_duration
 }
 
-resource "aws_iam_policy" "role_ap_airflow" {
+resource "aws_iam_policy" "airflow_role" {
   for_each = {
     for idx, doc in var.iam_policy_documents : "${local.role_name}-${idx}" => doc
   }
@@ -61,8 +60,8 @@ resource "aws_iam_policy" "role_ap_airflow" {
   policy      = each.value
 }
 
-resource "aws_iam_role_policy_attachment" "role_ap_airflow" {
-  for_each   = aws_iam_policy.role_ap_airflow
-  role       = aws_iam_role.role_ap_airflow.name
+resource "aws_iam_role_policy_attachment" "airflow_role" {
+  for_each   = aws_iam_policy.airflow_role
+  role       = aws_iam_role.airflow_role.name
   policy_arn = each.value.arn
 }

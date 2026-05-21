@@ -2,15 +2,18 @@
 
 Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including trust policy, optional managed policies, and optional inline policies.
 
-The generated role name is `airflow-<account>-<role_name_suffix>`, where `<account>` is `prod` for `production` and `preproduction`, `test` for `test`, and `dev` for `development`.
-`<role_name_suffix>` is appended with `-pp` when `<account>` is `preproduction` to avoid name clash.
+The generated role name is `airflow-<airflow_env>-<role_name_suffix><env_suffix>`, where `<airflow_env>` is `prod` for `production` and `preproduction`, `test` for `test`, and `dev` for `development`.
+`<env_suffix>` is `-pp` for preproduction and empty for other environments to avoid a name clash with a production workflow.
 This role name can be inserted into the given Airflow workflow file in the `analytical-platform-airflow` [repository](https://github.com/ministryofjustice/analytical-platform-airflow/) under `iam: external_role:` (see the [External IAM roles for Airflow documentation](https://user-guidance.analytical-platform.service.justice.gov.uk/services/airflow/#external-iam-roles)).
+
+The module also generates an MWAA service account identifier with the format `mwaa:<application_name>-<role_name_suffix><env_suffix>`.
+This service account identifier is used in the OIDC trust policy to restrict role assumption to the specific Airflow workload.
 
 ## Usage
 
 ```hcl
 module "data_platform_airflow_iam_role" {
-  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/airflow-iam-role?ref=v1.0.0"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/airflow-iam-role?ref=19eac26"
 
   application_name   = local.application_name
   environment        = local.environment
@@ -62,9 +65,9 @@ No modules.
 
 | Name | Type |
 |------|------|
-| [aws_iam_policy.role_ap_airflow](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
-| [aws_iam_role.role_ap_airflow](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
-| [aws_iam_role_policy_attachment.role_ap_airflow](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_iam_policy.airflow_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_policy) | resource |
+| [aws_iam_role.airflow_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role_policy_attachment.airflow_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
 | [aws_iam_policy_document.oidc_assume_role_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 
 ## Inputs
@@ -73,7 +76,7 @@ No modules.
 |------|-------------|------|---------|:--------:|
 | <a name="input_application_name"></a> [application\_name](#input\_application\_name) | Application name used in the MWAA service account identifier (Use `local.application_name` as defined in `platform_locals.tf`) | `string` | n/a | yes |
 | <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment name (use `local.environment` as defined in `platform_locals.tf`) | `string` | n/a | yes |
-| <a name="input_iam_policy_documents"></a> [iam\_policy\_documents](#input\_iam\_policy\_documents) | List of IAM policy JSON documents to create and attach to the role | `list(string)` | n/a | yes |
+| <a name="input_iam_policy_documents"></a> [iam\_policy\_documents](#input\_iam\_policy\_documents) | List of IAM policy JSON documents to create and attach to the role | `list(string)` | `[]` | no |
 | <a name="input_max_session_duration"></a> [max\_session\_duration](#input\_max\_session\_duration) | Maximum session duration in seconds | `number` | `3600` | no |
 | <a name="input_oidc_arn"></a> [oidc\_arn](#input\_oidc\_arn) | ARN of the OIDC identity provider | `string` | n/a | yes |
 | <a name="input_role_description"></a> [role\_description](#input\_role\_description) | Description of the IAM role | `string` | n/a | yes |

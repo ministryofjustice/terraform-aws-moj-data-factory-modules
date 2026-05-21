@@ -41,6 +41,7 @@ variable "secret_code" {
 variable "iam_policy_documents" {
   description = "List of IAM policy JSON documents to create and attach to the role"
   type        = list(string)
+  default     = []
 }
 
 variable "max_session_duration" {
