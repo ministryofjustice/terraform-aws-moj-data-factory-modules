@@ -13,7 +13,7 @@ locals {
   }
   role_name_suffix = var.environment == "preproduction" ? trimsuffix(var.role_name_suffix, "-pp") : var.role_name_suffix
   mwaa             = "mwaa:${var.application_name}${local.env_suffixes[var.environment]}-${local.role_name_suffix}"
-  role_name        = "airflow-${local.account_map[var.environment]}-${var.role_name_suffix}"
+  role_name        = "airflow-${local.account_map[var.environment]}-${local.role_name_suffix}"
 }
 
 # --------------------------------------------

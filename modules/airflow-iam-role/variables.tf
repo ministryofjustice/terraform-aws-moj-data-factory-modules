@@ -1,5 +1,5 @@
 variable "environment" {
-  description = "Application name used in the MWAA service account identifier (use `local.application_name` as defined in `platform.locals.tf`)"
+  description = "Deployment environment name (use `local.environment` as defined in `platform_locals.tf`)"
   type        = string
 
   validation {
@@ -14,7 +14,7 @@ variable "environment" {
 }
 
 variable "application_name" {
-  description = "Application name used in the MWAA service account identifier. Use `local.application_name`"
+  description = "Application name used in the MWAA service account identifier (Use `local.application_name` as defined in `platform_locals.tf`)"
   type        = string
 }
 

@@ -71,8 +71,8 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_application_name"></a> [application\_name](#input\_application\_name) | Application name used in the MWAA service account identifier. Use `local.application_name` | `string` | n/a | yes |
-| <a name="input_environment"></a> [environment](#input\_environment) | Application name used in the MWAA service account identifier (use `local.application_name` as defined in `platform.locals.tf`) | `string` | n/a | yes |
+| <a name="input_application_name"></a> [application\_name](#input\_application\_name) | Application name used in the MWAA service account identifier (Use `local.application_name` as defined in `platform_locals.tf`) | `string` | n/a | yes |
+| <a name="input_environment"></a> [environment](#input\_environment) | Deployment environment name (use `local.environment` as defined in `platform_locals.tf`) | `string` | n/a | yes |
 | <a name="input_iam_policy_documents"></a> [iam\_policy\_documents](#input\_iam\_policy\_documents) | List of IAM policy JSON documents to create and attach to the role | `list(string)` | n/a | yes |
 | <a name="input_max_session_duration"></a> [max\_session\_duration](#input\_max\_session\_duration) | Maximum session duration in seconds | `number` | `3600` | no |
 | <a name="input_oidc_arn"></a> [oidc\_arn](#input\_oidc\_arn) | ARN of the OIDC identity provider | `string` | n/a | yes |
