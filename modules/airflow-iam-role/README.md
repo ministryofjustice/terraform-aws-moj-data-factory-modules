@@ -1,7 +1,6 @@
 # Data Factory Airflow IAM Role
 
-Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including trust policy, optional managed policies, and optional inline policies.
-
+Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including the trust policy and optional customer-managed IAM policies created from `iam_policy_documents` and attached to the role.
 The generated role name is `airflow-<airflow_env>-<role_name_suffix><env_suffix>`, where `<airflow_env>` is `prod` for `production` and `preproduction`, `test` for `test`, and `dev` for `development`.
 `<env_suffix>` is `-pp` for preproduction and empty for other environments to avoid a name clash with a production workflow.
 This role name can be inserted into the given Airflow workflow file in the `analytical-platform-airflow` [repository](https://github.com/ministryofjustice/analytical-platform-airflow/) under `iam: external_role:` (see the [External IAM roles for Airflow documentation](https://user-guidance.analytical-platform.service.justice.gov.uk/services/airflow/#external-iam-roles)).
