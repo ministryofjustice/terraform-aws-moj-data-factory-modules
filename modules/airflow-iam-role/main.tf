@@ -56,8 +56,8 @@ resource "aws_iam_policy" "airflow_role" {
   for_each = {
     for idx, doc in var.iam_policy_documents : "${local.role_name}-${idx}" => doc
   }
-  name_prefix = each.key
-  policy      = each.value
+  name   = each.key
+  policy = each.value
 }
 
 resource "aws_iam_role_policy_attachment" "airflow_role" {
