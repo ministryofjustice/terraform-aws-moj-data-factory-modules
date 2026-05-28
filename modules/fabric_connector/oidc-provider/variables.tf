@@ -28,3 +28,19 @@ variable "client_id" {
     error_message = "client_id must be a non-empty string."
   }
 }
+
+variable "thumbprint_list" {
+  type        = list(string)
+  description = "Optional override for OIDC provider SHA1 thumbprints. If null, the module derives the thumbprint from the issuer certificate chain."
+  default     = null
+
+  validation {
+    condition = var.thumbprint_list == null || (
+      length(var.thumbprint_list) > 0 &&
+      alltrue([
+        for thumbprint in var.thumbprint_list : can(regex("^[0-9a-fA-F]{40}$", trimspace(thumbprint)))
+      ])
+    )
+    error_message = "thumbprint_list must be null or a non-empty list of 40-character SHA1 hex fingerprints."
+  }
+}
