@@ -50,10 +50,6 @@ The OIDC provider is created with:
 
 When a Power BI service principal in Entra attempts to access AWS resources, it exchanges an Entra token for temporary AWS credentials via the OIDC provider.
 
-## Requirements
-
-- Valid Microsoft Entra tenant ID
-
 ## Related Modules
 
 - [iam-role](../iam-role/README.md) - Creates IAM roles that trust this OIDC provider
