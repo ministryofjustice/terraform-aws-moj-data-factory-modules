@@ -27,6 +27,10 @@ As the repository grows, each module should include clear inputs, outputs, usage
 - [fabric_connector/oidc-provider](modules/fabric_connector/oidc-provider/README.md): creates an AWS IAM OIDC provider for Microsoft Entra integration
 - [fabric_connector/iam-role](modules/fabric_connector/iam-role/README.md): creates an IAM role for S3 access via Entra OIDC federation
 
+## Runnable Examples
+
+- [fabric_connector_test](examples/fabric_connector_test/README.md): end-to-end example wiring OIDC provider + IAM role with user-supplied values
+
 ## Usage
 
 Terraform modules from this repository can be consumed in downstream infrastructure code by referencing the module source and version.

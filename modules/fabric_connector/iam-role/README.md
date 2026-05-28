@@ -113,12 +113,13 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_audience"></a> [audience](#input\_audience) | Expected OIDC audience (`aud`) claim. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the S3 bucket this role can read. | `string` | n/a | yes |
 | <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Microsoft Entra object ID allowed to assume the IAM role. | `string` | n/a | yes |
 | <a name="input_oidc_provider_arn"></a> [oidc\_provider\_arn](#input\_oidc\_provider\_arn) | ARN of the IAM OIDC provider trusted by this role. | `string` | n/a | yes |
+| <a name="input_oidc_provider_condition_key_prefix"></a> [oidc\_provider\_condition\_key\_prefix](#input\_oidc\_provider\_condition\_key\_prefix) | Condition key prefix from the oidc-provider module output (e.g. 'sts.windows.net/{tenant\_id}/:'). | `string` | n/a | yes |
 | <a name="input_role_name"></a> [role\_name](#input\_role\_name) | IAM role name for Fabric web identity access. | `string` | n/a | yes |
 | <a name="input_role_policy_name"></a> [role\_policy\_name](#input\_role\_policy\_name) | Inline IAM policy name attached to the IAM role. | `string` | n/a | yes |
-| <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Microsoft Entra tenant ID used in IAM trust policy conditions. | `string` | n/a | yes |
 
 ## Outputs
 

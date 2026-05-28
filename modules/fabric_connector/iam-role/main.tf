@@ -10,13 +10,13 @@ data "aws_iam_policy_document" "trust" {
 
     condition {
       test     = "StringEquals"
-      variable = "sts.windows.net/${var.tenant_id}/:aud"
-      values   = ["https://analysis.windows.net/powerbi/connector/AmazonS3"]
+      variable = "${var.oidc_provider_condition_key_prefix}aud"
+      values   = [var.audience]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "sts.windows.net/${var.tenant_id}/:sub"
+      variable = "${var.oidc_provider_condition_key_prefix}sub"
       values   = [var.object_id]
     }
   }

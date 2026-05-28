@@ -1,0 +1,14 @@
+aws_region = "eu-west-2"
+
+# Microsoft Entra tenant and service principal object IDs (GUID format)
+tenant_id = "00000000-0000-0000-0000-000000000000"
+object_id = "11111111-1111-1111-1111-111111111111"
+
+# Existing bucket ARN to grant read access
+bucket_arn = "arn:aws:s3:::your-existing-bucket-name"
+
+# Optional overrides
+oidc_provider_name = "fabric-powerbi-oidc"
+role_name          = "fabric-s3-access"
+role_policy_name   = "fabric-s3-read-policy"
+# client_id        = "https://analysis.windows.net/powerbi/connector/AmazonS3"

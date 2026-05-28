@@ -17,3 +17,14 @@ variable "oidc_provider_name" {
     error_message = "oidc_provider_name must be non-empty and contain only letters, numbers, periods, underscores, and hyphens."
   }
 }
+
+variable "client_id" {
+  type        = string
+  description = "OIDC audience/client ID to trust. Defaults to the Power BI Amazon S3 connector audience."
+  default     = "https://analysis.windows.net/powerbi/connector/AmazonS3"
+
+  validation {
+    condition     = length(trimspace(var.client_id)) > 0
+    error_message = "client_id must be a non-empty string."
+  }
+}

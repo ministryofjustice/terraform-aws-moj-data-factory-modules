@@ -82,6 +82,7 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_client_id"></a> [client\_id](#input\_client\_id) | OIDC audience/client ID to trust. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_oidc_provider_name"></a> [oidc\_provider\_name](#input\_oidc\_provider\_name) | Tag name for the AWS IAM OIDC provider. | `string` | n/a | yes |
 | <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Microsoft Entra tenant ID used in OIDC provider URL. | `string` | n/a | yes |
 
@@ -90,4 +91,7 @@ No modules.
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_arn"></a> [arn](#output\_arn) | ARN of the IAM OIDC provider. |
+| <a name="output_client_id"></a> [client\_id](#output\_client\_id) | Configured OIDC audience/client ID. |
+| <a name="output_condition_key_prefix"></a> [condition\_key\_prefix](#output\_condition\_key\_prefix) | Prefix for IAM condition keys derived from the issuer (used for trust policy conditions). |
+| <a name="output_issuer"></a> [issuer](#output\_issuer) | The OIDC provider issuer URL. |
 <!-- END_TF_DOCS -->

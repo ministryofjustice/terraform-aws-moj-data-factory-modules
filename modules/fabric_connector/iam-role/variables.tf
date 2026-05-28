@@ -1,10 +1,21 @@
-variable "tenant_id" {
+variable "oidc_provider_condition_key_prefix" {
   type        = string
-  description = "Microsoft Entra tenant ID used in IAM trust policy conditions."
+  description = "Condition key prefix from the oidc-provider module output (e.g. 'sts.windows.net/{tenant_id}/:')."
 
   validation {
-    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", trimspace(var.tenant_id)))
-    error_message = "tenant_id must be a non-empty GUID."
+    condition     = length(trimspace(var.oidc_provider_condition_key_prefix)) > 1 && endswith(trimspace(var.oidc_provider_condition_key_prefix), ":") && !strcontains(trimspace(var.oidc_provider_condition_key_prefix), " ")
+    error_message = "oidc_provider_condition_key_prefix must be non-empty, must end with ':', and must not contain spaces."
+  }
+}
+
+variable "audience" {
+  type        = string
+  description = "Expected OIDC audience (`aud`) claim. Defaults to the Power BI Amazon S3 connector audience."
+  default     = "https://analysis.windows.net/powerbi/connector/AmazonS3"
+
+  validation {
+    condition     = length(trimspace(var.audience)) > 0
+    error_message = "audience must be a non-empty string."
   }
 }
 
