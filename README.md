@@ -24,6 +24,8 @@ As the repository grows, each module should include clear inputs, outputs, usage
 ## Available Modules
 
 - [example](modules/example/README.md): starter module that demonstrates structure, inputs, outputs, and tagging conventions
+- [fabric_connector/oidc-provider](modules/fabric_connector/oidc-provider/README.md): creates an AWS IAM OIDC provider for Microsoft Entra integration
+- [fabric_connector/iam-role](modules/fabric_connector/iam-role/README.md): creates an IAM role for S3 access via Entra OIDC federation
 
 ## Usage
 

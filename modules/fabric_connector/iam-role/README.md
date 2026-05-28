@@ -10,7 +10,7 @@ The IAM role establishes a trust relationship with a specific Entra service prin
 
 ```hcl
 module "iam_role" {
-  source = "./modules/iam-role"
+  source = "./modules/fabric_connector/iam-role"
 
   tenant_id         = "your-entra-tenant-id"
   object_id         = "entra-service-principal-object-id"
@@ -25,14 +25,14 @@ module "iam_role" {
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/oidc-provider"
+  source = "./modules/fabric_connector/oidc-provider"
   
   tenant_id          = var.tenant_id
   oidc_provider_name = "entra-powerbi"
 }
 
 module "iam_role" {
-  source = "./modules/iam-role"
+  source = "./modules/fabric_connector/iam-role"
   
   tenant_id         = var.tenant_id
   object_id         = var.object_id

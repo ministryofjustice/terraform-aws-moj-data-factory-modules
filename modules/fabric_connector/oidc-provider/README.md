@@ -10,7 +10,7 @@ The OIDC provider acts as a federated identity provider, enabling secure authent
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/oidc-provider"
+  source = "./modules/fabric_connector/oidc-provider"
 
   tenant_id           = "your-entra-tenant-id"
   oidc_provider_name  = "entra-powerbi-provider"
@@ -23,14 +23,14 @@ The ARN output from this module should be passed to the [iam-role](../iam-role/R
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/oidc-provider"
+  source = "./modules/fabric_connector/oidc-provider"
   
   tenant_id          = var.tenant_id
   oidc_provider_name = "entra-powerbi-provider"
 }
 
 module "iam_role" {
-  source = "./modules/iam-role"
+  source = "./modules/fabric_connector/iam-role"
   
   oidc_provider_arn = module.oidc_provider.arn
   # ... other variables
