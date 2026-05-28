@@ -40,7 +40,7 @@ variable "bucket_arn" {
 
 variable "role_name" {
   type        = string
-  description = "IAM role name for CFE Fabric web identity access."
+  description = "IAM role name for Fabric web identity access."
 
   validation {
     condition     = length(trimspace(var.role_name)) > 0
@@ -50,7 +50,7 @@ variable "role_name" {
 
 variable "role_policy_name" {
   type        = string
-  description = "Inline IAM policy name attached to the CFE Fabric role."
+  description = "Inline IAM policy name attached to the IAM role."
 
   validation {
     condition     = length(trimspace(var.role_policy_name)) > 0

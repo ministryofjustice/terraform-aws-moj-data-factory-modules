@@ -85,7 +85,10 @@ These permissions allow the Entra service principal to list and retrieve objects
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
-No requirements.
+| Name | Version |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
 
 ## Providers
 
@@ -113,8 +116,8 @@ No modules.
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the S3 bucket this role can read. | `string` | n/a | yes |
 | <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Microsoft Entra object ID allowed to assume the IAM role. | `string` | n/a | yes |
 | <a name="input_oidc_provider_arn"></a> [oidc\_provider\_arn](#input\_oidc\_provider\_arn) | ARN of the IAM OIDC provider trusted by this role. | `string` | n/a | yes |
-| <a name="input_role_name"></a> [role\_name](#input\_role\_name) | IAM role name for CFE Fabric web identity access. | `string` | n/a | yes |
-| <a name="input_role_policy_name"></a> [role\_policy\_name](#input\_role\_policy\_name) | Inline IAM policy name attached to the CFE Fabric role. | `string` | n/a | yes |
+| <a name="input_role_name"></a> [role\_name](#input\_role\_name) | IAM role name for Fabric web identity access. | `string` | n/a | yes |
+| <a name="input_role_policy_name"></a> [role\_policy\_name](#input\_role\_policy\_name) | Inline IAM policy name attached to the IAM role. | `string` | n/a | yes |
 | <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Microsoft Entra tenant ID used in IAM trust policy conditions. | `string` | n/a | yes |
 
 ## Outputs
