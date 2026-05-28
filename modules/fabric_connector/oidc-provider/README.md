@@ -17,19 +17,6 @@ module "oidc_provider" {
 }
 ```
 
-## Inputs
-
-| Name | Description | Type | Required |
-|------|-------------|------|----------|
-| `tenant_id` | Microsoft Entra tenant ID used in OIDC provider URL | `string` | yes |
-| `oidc_provider_name` | Tag name for the AWS IAM OIDC provider | `string` | yes |
-
-## Outputs
-
-| Name | Description |
-|------|-------------|
-| `arn` | ARN of the IAM OIDC provider |
-
 ## Outputs Usage
 
 The ARN output from this module should be passed to the [iam-role](../iam-role/README.md) module as the `oidc_provider_arn` variable to establish the trust relationship.
@@ -66,3 +53,38 @@ When a Power BI service principal in Entra attempts to access AWS resources, it 
 ## Related Modules
 
 - [iam-role](../iam-role/README.md) - Creates IAM roles that trust this OIDC provider
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+No requirements.
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.47.0 |
+
+## Modules
+
+No modules.
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [aws_iam_openid_connect_provider.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_openid_connect_provider) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_oidc_provider_name"></a> [oidc\_provider\_name](#input\_oidc\_provider\_name) | Tag name for the AWS IAM OIDC provider. | `string` | n/a | yes |
+| <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Microsoft Entra tenant ID used in OIDC provider URL. | `string` | n/a | yes |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_arn"></a> [arn](#output\_arn) | ARN of the IAM OIDC provider. |
+<!-- END_TF_DOCS -->
