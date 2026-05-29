@@ -1,6 +1,6 @@
 variable "oidc_provider_condition_key_prefix" {
   type        = string
-  description = "Condition key prefix from the oidc-provider module output (e.g. 'sts.windows.net/{tenant_id}/:')."
+  description = "Condition key prefix from the fabric-oidc-provider module output (e.g. 'sts.windows.net/{tenant_id}/:')."
 
   validation {
     condition     = length(trimspace(var.oidc_provider_condition_key_prefix)) > 1 && endswith(trimspace(var.oidc_provider_condition_key_prefix), ":") && !strcontains(trimspace(var.oidc_provider_condition_key_prefix), " ")

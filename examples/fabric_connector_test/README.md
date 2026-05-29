@@ -2,8 +2,8 @@
 
 This example composes the two reusable modules in this repository:
 
-- `modules/fabric_connector/oidc-provider`
-- `modules/fabric_connector/iam-role`
+- `modules/fabric-oidc-provider`
+- `modules/fabric-iam-role`
 
 It creates:
 

@@ -1,5 +1,5 @@
 module "oidc_provider" {
-  source = "../../modules/fabric_connector/oidc-provider"
+  source = "../../modules/fabric-oidc-provider"
 
   tenant_id          = var.tenant_id
   oidc_provider_name = var.oidc_provider_name
@@ -7,7 +7,7 @@ module "oidc_provider" {
 }
 
 module "iam_role" {
-  source = "../../modules/fabric_connector/iam-role"
+  source = "../../modules/fabric-iam-role"
 
   object_id                          = var.object_id
   oidc_provider_arn                  = module.oidc_provider.arn

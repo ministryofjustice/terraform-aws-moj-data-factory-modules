@@ -28,7 +28,7 @@ module "example" {
 ## Requirements
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6.0 |
 
 ## Providers
@@ -46,7 +46,7 @@ No resources.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
+|------|-------------|------|---------|:--------:|
 | <a name="input_additional_tags"></a> [additional\_tags](#input\_additional\_tags) | Extra tags to merge with the module defaults | `map(string)` | `{}` | no |
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment identifier (for example: dev, test, preprod, prod) | `string` | n/a | yes |
 | <a name="input_name"></a> [name](#input\_name) | Name used for tagging and module outputs | `string` | n/a | yes |
@@ -54,7 +54,7 @@ No resources.
 ## Outputs
 
 | Name | Description |
-| ---- | ----------- |
+|------|-------------|
 | <a name="output_environment"></a> [environment](#output\_environment) | Resolved environment value |
 | <a name="output_name"></a> [name](#output\_name) | Resolved name value |
 | <a name="output_tags"></a> [tags](#output\_tags) | Merged tag map |

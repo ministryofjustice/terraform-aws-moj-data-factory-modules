@@ -10,7 +10,7 @@ The IAM role establishes a trust relationship with a specific Entra service prin
 
 ```hcl
 module "iam_role" {
-  source = "./modules/fabric_connector/iam-role"
+  source = "./modules/fabric-iam-role"
 
   tenant_id         = "your-entra-tenant-id"
   object_id         = "entra-service-principal-object-id"
@@ -25,15 +25,15 @@ module "iam_role" {
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/fabric_connector/oidc-provider"
-  
+  source = "./modules/fabric-oidc-provider"
+
   tenant_id          = var.tenant_id
   oidc_provider_name = "entra-powerbi"
 }
 
 module "iam_role" {
-  source = "./modules/fabric_connector/iam-role"
-  
+  source = "./modules/fabric-iam-role"
+
   tenant_id         = var.tenant_id
   object_id         = var.object_id
   oidc_provider_arn = module.oidc_provider.arn
@@ -65,7 +65,7 @@ These permissions allow the Entra service principal to list and retrieve objects
 
 ## How It Works
 
-1. The OIDC provider (created by the [oidc-provider](../oidc-provider/README.md) module) is configured to trust Microsoft Entra
+1. The OIDC provider (created by the [fabric-oidc-provider](../fabric-oidc-provider/README.md) module) is configured to trust Microsoft Entra
 2. The IAM role is configured with an assume-role policy that trusts the OIDC provider
 3. The assume-role policy includes conditions that restrict assumption to a specific Entra tenant and service principal
 4. When the service principal requests access, it exchanges an Entra token for temporary AWS credentials
@@ -73,27 +73,27 @@ These permissions allow the Entra service principal to list and retrieve objects
 
 ## Prerequisites
 
-- OIDC provider deployed (use the [oidc-provider](../oidc-provider/README.md) module)
+- OIDC provider deployed (use the [fabric-oidc-provider](../fabric-oidc-provider/README.md) module)
 - Valid Microsoft Entra tenant ID
 - Entra service principal object ID
 - Target S3 bucket ARN
 
 ## Related Modules
 
-- [oidc-provider](../oidc-provider/README.md) - Creates the OIDC provider this role trusts
+- [fabric-oidc-provider](../fabric-oidc-provider/README.md) - Creates the OIDC provider this role trusts
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6.0 |
 | <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
 
 ## Providers
 
 | Name | Version |
-| ---- | ------- |
+|------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | 6.47.0 |
 
 ## Modules
@@ -103,7 +103,7 @@ No modules.
 ## Resources
 
 | Name | Type |
-| ---- | ---- |
+|------|------|
 | [aws_iam_role.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role_policy.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_policy_document.bucket_access](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
@@ -112,18 +112,18 @@ No modules.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-| ---- | ----------- | ---- | ------- | :------: |
+|------|-------------|------|---------|:--------:|
 | <a name="input_audience"></a> [audience](#input\_audience) | Expected OIDC audience (`aud`) claim. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the S3 bucket this role can read. | `string` | n/a | yes |
 | <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Microsoft Entra object ID allowed to assume the IAM role. | `string` | n/a | yes |
 | <a name="input_oidc_provider_arn"></a> [oidc\_provider\_arn](#input\_oidc\_provider\_arn) | ARN of the IAM OIDC provider trusted by this role. | `string` | n/a | yes |
-| <a name="input_oidc_provider_condition_key_prefix"></a> [oidc\_provider\_condition\_key\_prefix](#input\_oidc\_provider\_condition\_key\_prefix) | Condition key prefix from the oidc-provider module output (e.g. 'sts.windows.net/{tenant\_id}/:'). | `string` | n/a | yes |
+| <a name="input_oidc_provider_condition_key_prefix"></a> [oidc\_provider\_condition\_key\_prefix](#input\_oidc\_provider\_condition\_key\_prefix) | Condition key prefix from the fabric-oidc-provider module output (e.g. 'sts.windows.net/{tenant\_id}/:'). | `string` | n/a | yes |
 | <a name="input_role_name"></a> [role\_name](#input\_role\_name) | IAM role name for Fabric web identity access. | `string` | n/a | yes |
 | <a name="input_role_policy_name"></a> [role\_policy\_name](#input\_role\_policy\_name) | Inline IAM policy name attached to the IAM role. | `string` | n/a | yes |
 
 ## Outputs
 
 | Name | Description |
-| ---- | ----------- |
+|------|-------------|
 | <a name="output_arn"></a> [arn](#output\_arn) | ARN of the IAM role. |
 <!-- END_TF_DOCS -->
