@@ -52,15 +52,7 @@ cp terraform.tfvars.example terraform.tfvars
 
 2. Edit `terraform.tfvars` with your values (see above for where to find them).
 
-3. Run Terraform (via Make from the repo root):
-
-```bash
-make example-init
-make example-plan
-make example-apply
-```
-
-Or directly:
+3. Run Terraform:
 
 ```bash
 terraform init
@@ -71,8 +63,7 @@ terraform apply
 4. Cleanup when finished:
 
 ```bash
-make example-destroy
-# or: terraform destroy
+terraform destroy
 ```
 
 ## Notes

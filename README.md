@@ -29,7 +29,7 @@ As the repository grows, each module should include clear inputs, outputs, usage
 
 ## Runnable Examples
 
-- [fabric_connector_test](examples/fabric_connector_test/README.md): end-to-end example wiring OIDC provider + IAM role with user-supplied values
+- [fabric_connector_test](examples/fabric_connector_test/README.md): end-to-end example wiring OIDC provider + IAM role with user-supplied values (run from within that directory)
 
 ## Usage
 
