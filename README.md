@@ -23,7 +23,13 @@ As the repository grows, each module should include clear inputs, outputs, usage
 
 ## Available Modules
 
-- [example](modules/example/README.md): starter module that demonstrates structure, inputs, outputs, and tagging conventions
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+| Module | Description |
+|--------|-------------|
+| [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including the trust policy and customer-managed IAM policies created from supplied policy documents and attached to the role. |
+<!-- markdownlint-enable -->
+<!-- prettier-ignore-end -->
 
 ## Usage
 
@@ -33,7 +39,7 @@ Example:
 
 ```hcl
 module "example" {
-  source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/example?ref=v1.0.0"
+  source  = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/<module name>?ref=<git hash>"
 
   # module inputs...
 }
