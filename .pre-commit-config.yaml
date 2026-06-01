@@ -26,4 +26,12 @@ repos:
         args: ["."]
         pass_filenames: false
 
+  - repo: https://github.com/streetsidesoftware/cspell-cli
+    rev: 36064fa396bcbcd7df169b9f932536b7e6d2666c  # frozen: v8.4.0
+    hooks:
+      - id: cspell # Spell check changed files
+        args:
+          # - --config cspell.json
+          - --no-progress
+
 exclude: .devcontainer/devcontainer-lock.json
