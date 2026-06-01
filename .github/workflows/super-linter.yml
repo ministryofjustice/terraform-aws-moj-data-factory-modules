@@ -17,3 +17,11 @@ jobs:
       packages: read
       statuses: write
     uses: ministryofjustice/data-platform-github-actions/.github/workflows/super-linter.yml@f8eec741ffb11054c5d89cd7af91540cd36b0d2a # v3.4.3
+    with:
+      super-linter-variables: >-
+        {
+          "ENABLE_GITHUB_ACTIONS_STEP_SUMMARY": true,
+          "SAVE_SUPER_LINTER_SUMMARY": true,
+          "SUPPRESS_OUTPUT_ON_SUCCESS": true,
+          "LOG_LEVEL": "NOTICE"
+        }

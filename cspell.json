@@ -8,6 +8,7 @@
     "openssf",
     "preprod",
     "zizmor",
-    "powerbi"
+    "powerbi",
+    "tfvars"
   ]
 }
