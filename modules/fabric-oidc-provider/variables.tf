@@ -35,7 +35,7 @@ variable "thumbprint_list" {
   default     = null
 
   validation {
-    condition = var.thumbprint_list == null || (
+    condition = var.thumbprint_list == null ? true : (
       length(var.thumbprint_list) > 0 &&
       alltrue([
         for thumbprint in var.thumbprint_list : can(regex("^[0-9a-fA-F]{40}$", trimspace(thumbprint)))
