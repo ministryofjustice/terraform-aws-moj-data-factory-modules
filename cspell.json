@@ -15,6 +15,7 @@
     "zizmor",
     "powerbi",
     "tfvars",
-    "serviceaccount"
+    "serviceaccount",
+    "color"
   ]
 }

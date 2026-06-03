@@ -38,3 +38,8 @@ jobs:
         with:
           config-file: .terraform-docs.yml
           fail-on-diff: "true"
+
+      - name: Show diff
+        id: show_diff
+        if: failure() && steps.terraform_docs.outcome == 'failure'
+        run: git diff --color=always
