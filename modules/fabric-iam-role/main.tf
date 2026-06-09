@@ -36,7 +36,7 @@ data "aws_iam_policy_document" "bucket_access" {
 
   statement {
     effect    = "Allow"
-    actions   = ["s3:GetObject"]
+    actions   = ["s3:GetObject", "s3:GetObjectAttributes"]
     resources = ["${var.bucket_arn}/*"]
   }
 }
