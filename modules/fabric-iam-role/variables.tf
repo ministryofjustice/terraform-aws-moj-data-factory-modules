@@ -1,3 +1,9 @@
+variable "additional_tags" {
+  type        = map(string)
+  description = "Additional tags to apply to resources created by this module."
+  default     = {}
+}
+
 variable "oidc_provider_condition_key_prefix" {
   type        = string
   description = "Condition key prefix from the fabric-oidc-provider module output (e.g. 'sts.windows.net/{tenant_id}/:')."
@@ -54,8 +60,8 @@ variable "role_name" {
   description = "IAM role name for Fabric web identity access."
 
   validation {
-    condition     = length(trimspace(var.role_name)) > 0
-    error_message = "role_name must be a non-empty string."
+    condition     = can(regex("^[\\w+=,.@-]{1,64}$", var.role_name)) && trimspace(var.role_name) == var.role_name
+    error_message = "role_name must be 1-64 characters, use only [A-Za-z0-9_+=,.@-], and have no leading or trailing whitespace."
   }
 }
 
@@ -64,7 +70,7 @@ variable "role_policy_name" {
   description = "Inline IAM policy name attached to the IAM role."
 
   validation {
-    condition     = length(trimspace(var.role_policy_name)) > 0
-    error_message = "role_policy_name must be a non-empty string."
+    condition     = can(regex("^[\\w+=,.@-]{1,128}$", var.role_policy_name)) && trimspace(var.role_policy_name) == var.role_policy_name
+    error_message = "role_policy_name must be 1-128 characters, use only [A-Za-z0-9_+=,.@-], and have no leading or trailing whitespace."
   }
 }

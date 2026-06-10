@@ -10,14 +10,14 @@ The IAM role establishes a trust relationship with a specific Entra service prin
 
 ```hcl
 module "iam_role" {
-  source = "./modules/fabric-iam-role"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/fabric-iam-role?ref=<git-ref>"
 
-  tenant_id         = "your-entra-tenant-id"
-  object_id         = "entra-service-principal-object-id"
-  oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/sts.windows.net/..."
-  bucket_arn        = "arn:aws:s3:::my-bucket"
-  role_name         = "cfe-fabric-s3-access"
-  role_policy_name  = "cfe-fabric-s3-policy"
+  object_id                          = "00000000-0000-0000-0000-000000000000"
+  oidc_provider_arn                  = "arn:aws:iam::123456789012:oidc-provider/sts.windows.net/00000000-0000-0000-0000-000000000000/"
+  oidc_provider_condition_key_prefix = "sts.windows.net/00000000-0000-0000-0000-000000000000/:"
+  bucket_arn                         = "arn:aws:s3:::my-bucket"
+  role_name                          = "cfe-fabric-s3-access"
+  role_policy_name                   = "cfe-fabric-s3-policy"
 }
 ```
 
@@ -25,21 +25,22 @@ module "iam_role" {
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/fabric-oidc-provider"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/fabric-oidc-provider?ref=<git-ref>"
 
   tenant_id          = var.tenant_id
   oidc_provider_name = "entra-powerbi"
 }
 
 module "iam_role" {
-  source = "./modules/fabric-iam-role"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/fabric-iam-role?ref=<git-ref>"
 
-  tenant_id         = var.tenant_id
-  object_id         = var.object_id
-  oidc_provider_arn = module.oidc_provider.arn
-  bucket_arn        = aws_s3_bucket.data_bucket.arn
-  role_name         = "cfe-fabric-s3-access"
-  role_policy_name  = "cfe-fabric-s3-read-policy"
+  object_id                          = var.object_id
+  oidc_provider_arn                  = module.oidc_provider.arn
+  oidc_provider_condition_key_prefix = module.oidc_provider.condition_key_prefix
+  audience                           = module.oidc_provider.client_id
+  bucket_arn                         = aws_s3_bucket.data_bucket.arn
+  role_name                          = "cfe-fabric-s3-access"
+  role_policy_name                   = "cfe-fabric-s3-read-policy"
 }
 
 output "iam_role_arn" {
@@ -59,15 +60,15 @@ These permissions allow the Entra service principal to list and retrieve objects
 ## Security Features
 
 - **Web Identity Federation**: Uses OIDC instead of long-lived access keys
-- **Condition-Based Trust**: Only allows assumption from a specific Entra tenant and service principal
-- **Tenant Verification**: IAM conditions verify both the tenant ID and object ID match
+- **Condition-Based Trust**: Restricts assumption to the expected audience (`aud`) and Entra service principal subject (`sub`)
+- **Tenant Scoping**: Tenant isolation is inherited from the OIDC provider issuer (the `oidc_provider_condition_key_prefix`), not a separate tenant-id condition
 - **Minimal Permissions**: Grants only the S3 permissions needed for read access
 
 ## How It Works
 
 1. The OIDC provider (created by the [fabric-oidc-provider](../fabric-oidc-provider/README.md) module) is configured to trust Microsoft Entra
 2. The IAM role is configured with an assume-role policy that trusts the OIDC provider
-3. The assume-role policy includes conditions that restrict assumption to a specific Entra tenant and service principal
+3. The assume-role policy includes conditions that restrict assumption to the expected audience (`aud`) and service principal subject (`sub`), with tenant scoping inherited from the OIDC provider issuer
 4. When the service principal requests access, it exchanges an Entra token for temporary AWS credentials
 5. The credentials grant access to the specified S3 bucket
 
@@ -86,15 +87,15 @@ These permissions allow the Entra service principal to list and retrieve objects
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.0 |
 
 ## Providers
 
 | Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0 |
+| ---- | ------- |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.0 |
 
 ## Modules
 
@@ -103,7 +104,7 @@ No modules.
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [aws_iam_role.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
 | [aws_iam_role_policy.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
 | [aws_iam_policy_document.bucket_access](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
@@ -112,7 +113,8 @@ No modules.
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_additional_tags"></a> [additional\_tags](#input\_additional\_tags) | Additional tags to apply to resources created by this module. | `map(string)` | `{}` | no |
 | <a name="input_audience"></a> [audience](#input\_audience) | Expected OIDC audience (`aud`) claim. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the S3 bucket this role can read. | `string` | n/a | yes |
 | <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Microsoft Entra object ID allowed to assume the IAM role. | `string` | n/a | yes |
@@ -124,6 +126,6 @@ No modules.
 ## Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | <a name="output_arn"></a> [arn](#output\_arn) | ARN of the IAM role. |
 <!-- END_TF_DOCS -->

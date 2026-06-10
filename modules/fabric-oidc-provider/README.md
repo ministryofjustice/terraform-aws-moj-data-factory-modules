@@ -10,10 +10,10 @@ The OIDC provider acts as a federated identity provider, enabling secure authent
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/fabric-oidc-provider"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/fabric-oidc-provider?ref=<git-ref>"
 
-  tenant_id           = "your-entra-tenant-id"
-  oidc_provider_name  = "entra-powerbi-provider"
+  tenant_id          = "00000000-0000-0000-0000-000000000000"
+  oidc_provider_name = "entra-powerbi-provider"
 
   # Optional override. If omitted, the module derives thumbprints from the issuer certificate chain.
   # thumbprint_list  = ["<40-char-sha1-thumbprint>"]
@@ -22,20 +22,22 @@ module "oidc_provider" {
 
 ## Outputs Usage
 
-The ARN output from this module should be passed to the [fabric-iam-role](../fabric-iam-role/README.md) module as the `oidc_provider_arn` variable to establish the trust relationship.
+This module's outputs wire directly into the [fabric-iam-role](../fabric-iam-role/README.md) module. Pass the `arn` output as `oidc_provider_arn` and the `condition_key_prefix` output as `oidc_provider_condition_key_prefix` to construct a reliable trust-policy condition. Aligning `audience` with the provider's `client_id` output is also recommended.
 
 ```hcl
 module "oidc_provider" {
-  source = "./modules/fabric-oidc-provider"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules/modules/fabric-oidc-provider?ref=<git-ref>"
 
   tenant_id          = var.tenant_id
   oidc_provider_name = "entra-powerbi-provider"
 }
 
 module "iam_role" {
-  source = "./modules/fabric-iam-role"
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules/modules/fabric-iam-role?ref=<git-ref>"
 
-  oidc_provider_arn = module.oidc_provider.arn
+  oidc_provider_arn                  = module.oidc_provider.arn
+  oidc_provider_condition_key_prefix = module.oidc_provider.condition_key_prefix
+  audience                           = module.oidc_provider.client_id
   # ... other variables
 }
 ```
@@ -58,17 +60,17 @@ When a Power BI service principal in Entra attempts to access AWS resources, it 
 ## Requirements
 
 | Name | Version |
-|------|---------|
+| ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.6.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 6.0 |
-| <a name="requirement_tls"></a> [tls](#requirement\_tls) | >= 4.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.0 |
+| <a name="requirement_tls"></a> [tls](#requirement\_tls) | ~> 4.0 |
 
 ## Providers
 
 | Name | Version |
-|------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0 |
-| <a name="provider_tls"></a> [tls](#provider\_tls) | >= 4.0 |
+| ---- | ------- |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.0 |
+| <a name="provider_tls"></a> [tls](#provider\_tls) | ~> 4.0 |
 
 ## Modules
 
@@ -77,14 +79,15 @@ No modules.
 ## Resources
 
 | Name | Type |
-|------|------|
+| ---- | ---- |
 | [aws_iam_openid_connect_provider.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_openid_connect_provider) | resource |
 | [tls_certificate.issuer](https://registry.terraform.io/providers/hashicorp/tls/latest/docs/data-sources/certificate) | data source |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_additional_tags"></a> [additional\_tags](#input\_additional\_tags) | Additional tags to apply to resources created by this module. | `map(string)` | `{}` | no |
 | <a name="input_client_id"></a> [client\_id](#input\_client\_id) | OIDC audience/client ID to trust. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_oidc_provider_name"></a> [oidc\_provider\_name](#input\_oidc\_provider\_name) | Tag name for the AWS IAM OIDC provider. | `string` | n/a | yes |
 | <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Microsoft Entra tenant ID used in OIDC provider URL. | `string` | n/a | yes |
@@ -93,7 +96,7 @@ No modules.
 ## Outputs
 
 | Name | Description |
-|------|-------------|
+| ---- | ----------- |
 | <a name="output_arn"></a> [arn](#output\_arn) | ARN of the IAM OIDC provider. |
 | <a name="output_client_id"></a> [client\_id](#output\_client\_id) | Configured OIDC audience/client ID. |
 | <a name="output_condition_key_prefix"></a> [condition\_key\_prefix](#output\_condition\_key\_prefix) | Prefix for IAM condition keys derived from the issuer (used for trust policy conditions). |

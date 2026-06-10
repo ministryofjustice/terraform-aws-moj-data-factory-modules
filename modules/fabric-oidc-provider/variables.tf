@@ -29,6 +29,12 @@ variable "client_id" {
   }
 }
 
+variable "additional_tags" {
+  type        = map(string)
+  description = "Additional tags to apply to resources created by this module."
+  default     = {}
+}
+
 variable "thumbprint_list" {
   type        = list(string)
   description = "Optional override for OIDC provider SHA1 thumbprints. If null, the module derives the thumbprint from the issuer certificate chain."
