@@ -23,9 +23,15 @@ As the repository grows, each module should include clear inputs, outputs, usage
 
 ## Available Modules
 
-- [example](modules/example/README.md): starter module that demonstrates structure, inputs, outputs, and tagging conventions
-- [fabric-oidc-provider](modules/fabric-oidc-provider/README.md): creates an AWS IAM OIDC provider for Microsoft Entra integration
-- [fabric-iam-role](modules/fabric-iam-role/README.md): creates an IAM role for S3 access via Entra OIDC federation
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+| Module | Description |
+|--------|-------------|
+| [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including the trust policy and customer-managed IAM policies created from supplied policy documents and attached to the role. |
+| [fabric-oidc-provider](modules/fabric-oidc-provider/README.md) | creates an AWS IAM OIDC provider for Microsoft Entra integration |
+| [fabric-iam-role](modules/fabric-iam-role/README.md) | creates an IAM role for S3 access via Entra OIDC federation |
+<!-- markdownlint-enable -->
+<!-- prettier-ignore-end -->
 
 ## Runnable Examples
 
