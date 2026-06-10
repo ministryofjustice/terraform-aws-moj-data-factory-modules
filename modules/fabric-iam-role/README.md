@@ -54,6 +54,7 @@ The role grants the following S3 permissions:
 
 - `s3:ListBucket` - List objects in the bucket
 - `s3:GetObject` - Read/download objects from the bucket
+- `s3:GetObjectAttributes` - Read object metadata/attributes (required by some S3 clients)
 
 These permissions allow the Entra service principal to list and retrieve objects from the specified S3 bucket without write access.
 
