@@ -84,6 +84,8 @@ These permissions allow the Entra service principal to list and retrieve objects
 - [fabric-oidc-provider](../fabric-oidc-provider/README.md) - Creates the OIDC provider this role trusts
 
 <!-- BEGIN_TF_DOCS -->
+<!-- markdownlint-disable -->
+<!-- prettier-ignore-start -->
 ## Requirements
 
 | Name | Version |
@@ -128,4 +130,6 @@ No modules.
 | Name | Description |
 |------|-------------|
 | <a name="output_arn"></a> [arn](#output\_arn) | ARN of the IAM role. |
+<!-- prettier-ignore-end -->
+<!-- markdownlint-enable -->
 <!-- END_TF_DOCS -->

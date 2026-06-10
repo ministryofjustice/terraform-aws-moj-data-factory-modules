@@ -6,6 +6,13 @@ recursive:
   path: modules
   include-main: false
 
+content: |-
+  <!-- markdownlint-disable -->
+  <!-- prettier-ignore-start -->
+  {{ .Content }}
+  <!-- prettier-ignore-end -->
+  <!-- markdownlint-enable -->
+
 output:
   file: "README.md"
   mode: inject

@@ -22,25 +22,13 @@ module "oidc_provider" {
 
 ## Outputs Usage
 
-This module's outputs wire directly into the [fabric-iam-role](../fabric-iam-role/README.md) module. Pass the `arn` output as `oidc_provider_arn` and the `condition_key_prefix` output as `oidc_provider_condition_key_prefix` to construct a reliable trust-policy condition. Aligning `audience` with the provider's `client_id` output is also recommended.
+This module's outputs wire directly into the [fabric-iam-role](../fabric-iam-role/README.md) module:
 
-```hcl
-module "oidc_provider" {
-  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules/modules/fabric-oidc-provider?ref=<git-ref>"
+- pass the `arn` output as `oidc_provider_arn`
+- pass the `condition_key_prefix` output as `oidc_provider_condition_key_prefix` (required to build a reliable trust-policy condition)
+- align `audience` with the provider's `client_id` output
 
-  tenant_id          = var.tenant_id
-  oidc_provider_name = "entra-powerbi-provider"
-}
-
-module "iam_role" {
-  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules/modules/fabric-iam-role?ref=<git-ref>"
-
-  oidc_provider_arn                  = module.oidc_provider.arn
-  oidc_provider_condition_key_prefix = module.oidc_provider.condition_key_prefix
-  audience                           = module.oidc_provider.client_id
-  # ... other variables
-}
-```
+See the [Complete Example](../fabric-iam-role/README.md#complete-example) in the fabric-iam-role module for a full wiring of both modules.
 
 ## How It Works
 
@@ -57,6 +45,8 @@ When a Power BI service principal in Entra attempts to access AWS resources, it 
 - [fabric-iam-role](../fabric-iam-role/README.md) - Creates IAM roles that trust this OIDC provider
 
 <!-- BEGIN_TF_DOCS -->
+<!-- markdownlint-disable -->
+<!-- prettier-ignore-start -->
 ## Requirements
 
 | Name | Version |
@@ -101,4 +91,6 @@ No modules.
 | <a name="output_client_id"></a> [client\_id](#output\_client\_id) | Configured OIDC audience/client ID. |
 | <a name="output_condition_key_prefix"></a> [condition\_key\_prefix](#output\_condition\_key\_prefix) | Prefix for IAM condition keys derived from the issuer (used for trust policy conditions). |
 | <a name="output_issuer"></a> [issuer](#output\_issuer) | The OIDC provider issuer URL. |
+<!-- prettier-ignore-end -->
+<!-- markdownlint-enable -->
 <!-- END_TF_DOCS -->
