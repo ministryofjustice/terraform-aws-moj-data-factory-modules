@@ -67,8 +67,8 @@ When a Power BI service principal in Entra attempts to access AWS resources, it 
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.47.0 |
-| <a name="provider_tls"></a> [tls](#provider\_tls) | 4.3.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0 |
+| <a name="provider_tls"></a> [tls](#provider\_tls) | >= 4.0 |
 
 ## Modules
 
