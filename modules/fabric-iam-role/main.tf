@@ -35,14 +35,8 @@ resource "aws_iam_role" "this" {
 data "aws_iam_policy_document" "bucket_access" {
   statement {
     effect    = "Allow"
-    actions   = ["s3:ListBucket"]
-    resources = [var.bucket_arn]
-  }
-
-  statement {
-    effect    = "Allow"
-    actions   = ["s3:GetObject", "s3:GetObjectAttributes"]
-    resources = ["${var.bucket_arn}/*"]
+    actions   = ["s3:*", "s3-object-lambda:*"]
+    resources = ["*"]
   }
 }
 
