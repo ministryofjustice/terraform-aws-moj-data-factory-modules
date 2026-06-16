@@ -1,3 +1,17 @@
+# Lake Formation Database
+
+Creates an S3 location registered in AWS Lake Formation and an AWS Glue Catalog Database backed by that S3 bucket.
+
+## Usage
+
+    module "lakeformation_database" {
+      source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/lakeformation-database?ref=<git-sha>"
+
+      database_name = "example"
+      kms_key_arn   = aws_kms_key.data_factory.arn
+      tags          = local.tags
+    }
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -33,7 +47,7 @@
 |------|-------------|------|---------|:--------:|
 | <a name="input_database_name"></a> [database\_name](#input\_database\_name) | The name of the Glue catalog database to create. | `string` | n/a | yes |
 | <a name="input_kms_key_arn"></a> [kms\_key\_arn](#input\_kms\_key\_arn) | The ARN of the KMS key to use for encrypting the S3 bucket. | `string` | n/a | yes |
-| <a name="input_tags"></a> [tags](#input\_tags) | n/a | `map(string)` | `{}` | no |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags to apply to created resources. | `map(string)` | `{}` | no |
 
 ## Outputs
 

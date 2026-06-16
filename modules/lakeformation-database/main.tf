@@ -21,7 +21,7 @@ module "bucket" {
 }
 
 resource "aws_iam_role" "lakeformation_s3_access_role" {
-  name = "lakeformation-${var.database_name}-s3-access-role"
+  name = "${var.database_name}-s3-access"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -45,8 +45,8 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = ["s3:ListBucket"]
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
         Resource = [module.bucket.bucket.arn]
       },
       {
