@@ -21,7 +21,7 @@
 
 resource "aws_iam_role" "lakeformation_s3_access_role" {
   name = "${var.database_name}-s3-access"
-
+  tags = var.tags
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -47,6 +47,15 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
         Resource = ["arn:aws:s3:::${var.storage.bucket_name}"]
+        Condition = {
+          StringLike = {
+            "s3:prefix" = [
+              trim(var.storage.prefix, "/"),
+              "${trim(var.storage.prefix, "/")}/",
+              "${trim(var.storage.prefix, "/")}/*"
+            ]
+          }
+        }
       },
       {
         Effect = "Allow"
@@ -54,7 +63,7 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
           "s3:GetObject",
           "s3:PutObject"
         ]
-        Resource = ["arn:aws:s3:::${var.storage.bucket_name}/${var.storage.prefix}/*"]
+        Resource = ["arn:aws:s3:::${var.storage.bucket_name}/${trim(var.storage.prefix, "/")}/*"]
       },
       {
         Effect = "Allow"
@@ -71,8 +80,9 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
 }
 
 resource "aws_lakeformation_resource" "s3_location" {
-  role_arn = aws_iam_role.lakeformation_s3_access_role.arn
-  arn      = "arn:aws:s3:::${var.storage.bucket_name}/${var.storage.prefix}"
+  role_arn   = aws_iam_role.lakeformation_s3_access_role.arn
+  arn        = "arn:aws:s3:::${var.storage.bucket_name}/${trim(var.storage.prefix, "/")}"
+  depends_on = [aws_iam_role_policy.lakeformation_s3_access_policy]
 }
 
 resource "aws_glue_catalog_database" "data_factory_database" {

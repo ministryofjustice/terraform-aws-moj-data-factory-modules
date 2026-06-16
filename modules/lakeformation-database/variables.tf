@@ -9,13 +9,17 @@ variable "database_name" {
 }
 
 variable "storage" {
-  type = object(
-    {
-      bucket_name = string
-      prefix      = string
-      kms_key_arn = string
-    }
-  )
+  description = "S3 location backing the Glue database (bucket name, key prefix, and KMS key ARN)."
+  type = object({
+    bucket_name = string
+    prefix      = string
+    kms_key_arn = string
+  })
+
+  validation {
+    condition     = length(trim(var.storage.prefix, "/")) > 0 && !startswith(var.storage.prefix, "/")
+    error_message = "storage.prefix must be a non-empty S3 key prefix and must not start with '/'."
+  }
 }
 
 variable "tags" {
@@ -23,5 +27,3 @@ variable "tags" {
   description = "Tags to apply to created resources."
   default     = {}
 }
-
-#766696030771
