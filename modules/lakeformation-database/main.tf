@@ -1,7 +1,7 @@
 module "bucket" {
   source = "github.com/ministryofjustice/modernisation-platform-terraform-s3-bucket?ref=ce9c0c07489e393ce80441aed0fd5bf7798956a3"
 
-  bucket_prefix      = "data-factory-${var.database_name}-"
+  bucket_prefix      = "data-factory-${replace(lower(var.database_name), "_", "-")}-"
   versioning_enabled = true
   ownership_controls = "BucketOwnerEnforced"
 
