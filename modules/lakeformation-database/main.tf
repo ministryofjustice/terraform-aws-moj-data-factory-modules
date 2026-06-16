@@ -46,15 +46,26 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
     Statement = [
       {
         Effect = "Allow"
+        Action = ["s3:ListBucket"]
+        Resource = [module.bucket.bucket.arn]
+      },
+      {
+        Effect = "Allow"
         Action = [
           "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
+          "s3:PutObject"
         ]
-        Resource = [
-          "${module.bucket.bucket.arn}",
-          "${module.bucket.bucket.arn}/*"
+        Resource = ["${module.bucket.bucket.arn}/*"]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
         ]
+        Resource = [var.kms_key_arn]
       }
     ]
   })
