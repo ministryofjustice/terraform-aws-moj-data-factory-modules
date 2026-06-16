@@ -8,9 +8,14 @@ variable "database_name" {
   }
 }
 
-variable "kms_key_arn" {
-  description = "The ARN of the KMS key to use for encrypting the S3 bucket."
-  type        = string
+variable "storage" {
+  type = object(
+    {
+      bucket_name = string
+      prefix      = string
+      kms_key_arn = string
+    }
+  )
 }
 
 variable "tags" {
@@ -18,3 +23,5 @@ variable "tags" {
   description = "Tags to apply to created resources."
   default     = {}
 }
+
+#766696030771

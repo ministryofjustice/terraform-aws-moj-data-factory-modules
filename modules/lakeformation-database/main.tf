@@ -1,24 +1,23 @@
-module "bucket" {
-  source = "github.com/ministryofjustice/modernisation-platform-terraform-s3-bucket?ref=ce9c0c07489e393ce80441aed0fd5bf7798956a3"
-
-  bucket_prefix      = "data-factory-${replace(lower(var.database_name), "_", "-")}-"
-  versioning_enabled = true
-  ownership_controls = "BucketOwnerEnforced"
-
-  replication_enabled = false
-  providers = {
-    aws.bucket-replication = aws
-  }
-
-  custom_kms_key = var.kms_key_arn
-
-  tags = merge(
-    var.tags,
-    {
-      "Name" = "data-factory-${var.database_name}-bucket"
-    }
-  )
-}
+/**
+  * # Lake Formation Database
+  * This module creates an S3 location registered in AWS Lake Formation and an AWS Glue Catalog Database backed by that S3 bucket.
+  *
+  * ## Usage
+  * ```hcl
+  * module "lakeformation_database" {
+  *   source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/lakeformation-database?ref=<git-sha>"
+  *
+  *   database_name = "example"
+  *
+  *   storage = {
+  *     bucket_name = <bucket_name>
+  *     prefix      = "example"
+  *     kms_key_arn = "arn:aws:kms:eu-west-2:1234567890:key/example"
+  *   }
+  *   tags          = local.tags
+  * }
+  * ```
+*/
 
 resource "aws_iam_role" "lakeformation_s3_access_role" {
   name = "${var.database_name}-s3-access"
@@ -47,7 +46,7 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
       {
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
-        Resource = [module.bucket.bucket.arn]
+        Resource = ["arn:aws:s3:::${var.storage.bucket_name}"]
       },
       {
         Effect = "Allow"
@@ -55,7 +54,7 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
           "s3:GetObject",
           "s3:PutObject"
         ]
-        Resource = ["${module.bucket.bucket.arn}/*"]
+        Resource = ["arn:aws:s3:::${var.storage.bucket_name}/${var.storage.prefix}/*"]
       },
       {
         Effect = "Allow"
@@ -65,7 +64,7 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
           "kms:GenerateDataKey*",
           "kms:DescribeKey"
         ]
-        Resource = [var.kms_key_arn]
+        Resource = [var.storage.kms_key_arn]
       }
     ]
   })
@@ -73,12 +72,12 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
 
 resource "aws_lakeformation_resource" "s3_location" {
   role_arn = aws_iam_role.lakeformation_s3_access_role.arn
-  arn      = module.bucket.bucket.arn
+  arn      = "arn:aws:s3:::${var.storage.bucket_name}/${var.storage.prefix}"
 }
 
 resource "aws_glue_catalog_database" "data_factory_database" {
   name         = var.database_name
-  location_uri = module.bucket.bucket.arn
+  location_uri = "s3://${var.storage.bucket_name}/${var.storage.prefix}"
   description  = "Glue catalog database for ${var.database_name}"
   tags = merge(
     var.tags,
