@@ -1,0 +1,427 @@
+var.bucket_name
+  Name of the S3 bucket to create.
+
+  Enter a value: 
+var.kms_key_arn
+  ARN of the customer-managed KMS key used for S3 encryption.
+
+  Enter a value: 
+module.bucket.data.aws_region.current: Reading...
+data.aws_iam_policy_document.bucket_policy: Reading...
+data.aws_region.current: Reading...
+module.quarantine_bucket[0].data.aws_caller_identity.current: Reading...
+module.quarantine_bucket[0].data.aws_partition.current: Reading...
+module.bucket.data.aws_partition.current: Reading...
+module.quarantine_bucket[0].data.aws_region.current: Reading...
+module.bucket.data.aws_region.current: Read complete after 0s [id=eu-west-1]
+data.aws_region.current: Read complete after 0s [id=eu-west-1]
+module.quarantine_bucket[0].data.aws_region.current: Read complete after 0s [id=eu-west-1]
+module.bucket.data.aws_partition.current: Read complete after 0s [id=aws]
+module.quarantine_bucket[0].data.aws_partition.current: Read complete after 0s [id=aws]
+module.bucket.data.aws_caller_identity.current: Reading...
+data.aws_caller_identity.current: Reading...
+data.aws_iam_policy_document.bucket_policy: Read complete after 0s [id=3405189662]
+module.quarantine_bucket[0].data.aws_caller_identity.current: Read complete after 0s [id=446677926185]
+data.aws_caller_identity.current: Read complete after 0s [id=446677926185]
+data.aws_iam_policy_document.guardduty_malware_protection: Reading...
+data.aws_iam_policy_document.guardduty_malware_protection: Read complete after 0s [id=2747832574]
+module.bucket.data.aws_caller_identity.current: Read complete after 0s [id=446677926185]
+module.bucket.data.aws_iam_policy_document.combined[0]: Reading...
+module.bucket.data.aws_iam_policy_document.combined[0]: Read complete after 0s [id=3405189662]
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # aws_guardduty_malware_protection_plan.this will be created
+  + resource "aws_guardduty_malware_protection_plan" "this" {
+      + actions    = [
+          + {
+              + tagging = [
+                  + {
+                      + status = "ENABLED"
+                    },
+                ]
+            },
+        ]
+      + arn        = (known after apply)
+      + created_at = (known after apply)
+      + id         = (known after apply)
+      + region     = "eu-west-1"
+      + role       = (known after apply)
+      + status     = (known after apply)
+      + tags       = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+        }
+      + tags_all   = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+        }
+
+      + protected_resource {
+          + s3_bucket {
+              + bucket_name     = (known after apply)
+              + object_prefixes = []
+            }
+        }
+    }
+
+  # aws_iam_role.guardduty_malware_protection will be created
+  + resource "aws_iam_role" "guardduty_malware_protection" {
+      + arn                   = (known after apply)
+      + assume_role_policy    = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = "sts:AssumeRole"
+                      + Effect    = "Allow"
+                      + Principal = {
+                          + Service = "malware-protection-plan.guardduty.amazonaws.com"
+                        }
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + create_date           = (known after apply)
+      + force_detach_policies = false
+      + id                    = (known after apply)
+      + managed_policy_arns   = (known after apply)
+      + max_session_duration  = 3600
+      + name                  = "test-gd-malware-protection"
+      + name_prefix           = (known after apply)
+      + path                  = "/"
+      + tags                  = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+        }
+      + tags_all              = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+        }
+      + unique_id             = (known after apply)
+
+      + inline_policy (known after apply)
+    }
+
+  # aws_iam_role_policy.guardduty_malware_protection will be created
+  + resource "aws_iam_role_policy" "guardduty_malware_protection" {
+      + id          = (known after apply)
+      + name        = "test-gd-malware-protection"
+      + name_prefix = (known after apply)
+      + policy      = jsonencode(
+            {
+              + Statement = [
+                  + {
+                      + Action    = [
+                          + "events:RemoveTargets",
+                          + "events:PutTargets",
+                          + "events:PutRule",
+                          + "events:DeleteRule",
+                        ]
+                      + Condition = {
+                          + StringLike = {
+                              + "events:ManagedBy" = "malware-protection-plan.guardduty.amazonaws.com"
+                            }
+                        }
+                      + Effect    = "Allow"
+                      + Resource  = "arn:aws:events:eu-west-1:446677926185:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+                      + Sid       = "AllowManagedRuleToSendS3EventsToGuardDuty"
+                    },
+                  + {
+                      + Action   = [
+                          + "events:ListTargetsByRule",
+                          + "events:DescribeRule",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:events:eu-west-1:446677926185:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+                      + Sid      = "AllowGuardDutyToMonitorEventBridgeManagedRule"
+                    },
+                  + {
+                      + Action   = [
+                          + "s3:PutObjectVersionTagging",
+                          + "s3:PutObjectTagging",
+                          + "s3:GetObjectVersionTagging",
+                          + "s3:GetObjectTagging",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:s3:::test/*"
+                      + Sid      = "AllowPostScanTag"
+                    },
+                  + {
+                      + Action   = [
+                          + "s3:PutBucketNotification",
+                          + "s3:GetBucketNotification",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:s3:::test"
+                      + Sid      = "AllowEnableS3EventBridgeEvents"
+                    },
+                  + {
+                      + Action   = "s3:PutObject"
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:s3:::test/malware-protection-resource-validation-object"
+                      + Sid      = "AllowPutValidationObject"
+                    },
+                  + {
+                      + Action   = "s3:ListBucket"
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:s3:::test"
+                      + Sid      = "AllowCheckBucketOwnership"
+                    },
+                  + {
+                      + Action   = [
+                          + "s3:GetObjectVersion",
+                          + "s3:GetObject",
+                        ]
+                      + Effect   = "Allow"
+                      + Resource = "arn:aws:s3:::test/*"
+                      + Sid      = "AllowMalwareScan"
+                    },
+                  + {
+                      + Action    = [
+                          + "kms:GenerateDataKey",
+                          + "kms:Decrypt",
+                        ]
+                      + Condition = {
+                          + StringLike = {
+                              + "kms:ViaService" = "s3.eu-west-1.amazonaws.com"
+                            }
+                        }
+                      + Effect    = "Allow"
+                      + Resource  = "test1"
+                      + Sid       = "AllowDecryptForMalwareScan"
+                    },
+                ]
+              + Version   = "2012-10-17"
+            }
+        )
+      + role        = (known after apply)
+    }
+
+  # module.bucket.aws_s3_bucket.this[0] will be created
+  + resource "aws_s3_bucket" "this" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = "test"
+      + bucket_domain_name          = (known after apply)
+      + bucket_namespace            = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_region               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = false
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = false
+      + policy                      = (known after apply)
+      + region                      = "eu-west-1"
+      + request_payer               = (known after apply)
+      + tags                        = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+        }
+      + tags_all                    = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # module.bucket.aws_s3_bucket_ownership_controls.this[0] will be created
+  + resource "aws_s3_bucket_ownership_controls" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "eu-west-1"
+
+      + rule {
+          + object_ownership = "BucketOwnerEnforced"
+        }
+    }
+
+  # module.bucket.aws_s3_bucket_policy.this[0] will be created
+  + resource "aws_s3_bucket_policy" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + policy = (known after apply)
+      + region = "eu-west-1"
+    }
+
+  # module.bucket.aws_s3_bucket_public_access_block.this[0] will be created
+  + resource "aws_s3_bucket_public_access_block" "this" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + region                  = "eu-west-1"
+      + restrict_public_buckets = true
+      + skip_destroy            = true
+    }
+
+  # module.bucket.aws_s3_bucket_server_side_encryption_configuration.this[0] will be created
+  + resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "eu-west-1"
+
+      + rule {
+          + blocked_encryption_types = (known after apply)
+          + bucket_key_enabled       = true
+
+          + apply_server_side_encryption_by_default {
+              + kms_master_key_id = "test1"
+              + sse_algorithm     = "aws:kms"
+            }
+        }
+    }
+
+  # module.bucket.aws_s3_bucket_versioning.this[0] will be created
+  + resource "aws_s3_bucket_versioning" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "eu-west-1"
+
+      + versioning_configuration {
+          + mfa_delete = (known after apply)
+          + status     = "Enabled"
+        }
+    }
+
+  # module.quarantine_bucket[0].aws_s3_bucket.this[0] will be created
+  + resource "aws_s3_bucket" "this" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = "test-quarantine"
+      + bucket_domain_name          = (known after apply)
+      + bucket_namespace            = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_region               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = false
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = false
+      + policy                      = (known after apply)
+      + region                      = "eu-west-1"
+      + request_payer               = (known after apply)
+      + tags                        = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+          + "Purpose"   = "quarantine"
+        }
+      + tags_all                    = {
+          + "ManagedBy" = "Terraform"
+          + "Module"    = "s3-raw-bucket"
+          + "Purpose"   = "quarantine"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # module.quarantine_bucket[0].aws_s3_bucket_ownership_controls.this[0] will be created
+  + resource "aws_s3_bucket_ownership_controls" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "eu-west-1"
+
+      + rule {
+          + object_ownership = "BucketOwnerEnforced"
+        }
+    }
+
+  # module.quarantine_bucket[0].aws_s3_bucket_public_access_block.this[0] will be created
+  + resource "aws_s3_bucket_public_access_block" "this" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + region                  = "eu-west-1"
+      + restrict_public_buckets = true
+      + skip_destroy            = true
+    }
+
+  # module.quarantine_bucket[0].aws_s3_bucket_server_side_encryption_configuration.this[0] will be created
+  + resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "eu-west-1"
+
+      + rule {
+          + blocked_encryption_types = (known after apply)
+          + bucket_key_enabled       = true
+
+          + apply_server_side_encryption_by_default {
+              + kms_master_key_id = "test1"
+              + sse_algorithm     = "aws:kms"
+            }
+        }
+    }
+
+  # module.quarantine_bucket[0].aws_s3_bucket_versioning.this[0] will be created
+  + resource "aws_s3_bucket_versioning" "this" {
+      + bucket = (known after apply)
+      + id     = (known after apply)
+      + region = "eu-west-1"
+
+      + versioning_configuration {
+          + mfa_delete = (known after apply)
+          + status     = "Enabled"
+        }
+    }
+
+Plan: 14 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + bucket_arn                                 = (known after apply)
+  + bucket_name                                = (known after apply)
+  + guardduty_malware_protection_plan_id       = (known after apply)
+  + guardduty_malware_protection_plan_role_arn = (known after apply)
+  + guardduty_malware_protection_plan_status   = (known after apply)
+
+─────────────────────────────────────────────────────────────────────────────
+
+Note: You didn't use the -out option to save this plan, so Terraform can't
+guarantee to take exactly these actions if you run "terraform apply" now.
