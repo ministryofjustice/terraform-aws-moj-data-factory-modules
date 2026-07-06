@@ -1,0 +1,248 @@
+<!-- BEGIN_TF_DOCS -->
+# DMS Terraform Module
+This Terraform module provisions an AWS DMS (Database Migration Service) setup for replicating data from an Oracle database to an S3-based data lake architecture.
+
+It automates the creation and configuration of the following components:
+- A DMS replication instance and endpoints
+- Oracle source configuration (via Secrets Manager)
+- S3 target configuration and buckets
+- CDC (Change Data Capture) and full-load replication tasks
+- Optional pre-migration assessment resources
+- Optional metadata publishing to AWS Glue Catalog
+- IAM roles and policies required for DMS operations
+- Lambda functions for metadata generation and validation
+- EventBridge and SNS for alerts and notifications to Slack
+
+The module requires the below components:
+- A private VPC
+- A KMS key to encode secrets and traffic
+- Slack webhook and database connection configuration via Secrets Manager
+
+# Architecture Overview
+![DMS Module Diagram](./terraform-dms-module.excalidraw.png)
+
+*End-to-end DMS pipeline for Oracle to S3 replication with validation, landing, failure handling and Glue integration*
+
+## Example
+
+```hcl
+terraform {
+  required_version = ">= 1.0.0, < 2.0.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.42"
+    }
+  }
+}
+
+data "aws_availability_zones" "available" {}
+resource "aws_secretsmanager_secret" "dms_sandbox_secret" {
+  # checkov:skip=CKV2_AWS_57: Skipping because automatic rotation not needed.
+  name       = "dms-sandbox-secret"
+  kms_key_id = module.dms_test_kms.key_arn
+}
+
+#trivy:ignore:AVD-AWS-0066 X-Ray tracing not currently required. Logs sent to CloudWatch.
+module "test_dms_implementation" {
+  # checkov:skip=CKV_TF_1: ignore check in example
+  # checkov:skip=CKV_TF_2: ignore check in example
+  # tflint-ignore: terraform_module_pinned_source
+  source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/database-migration-service?ref=main"
+
+  vpc_id      = module.vpc.vpc_id
+  environment = local.tags.environment-name
+
+  db                      = aws_db_instance.dms_test.identifier
+  slack_webhook_secret_id = aws_secretsmanager_secret.slack_webhook.id
+  dms_replication_instance = {
+    replication_instance_id    = "test-dms"
+    subnet_ids                 = module.vpc.private_subnets
+    subnet_group_name          = "test-dms"
+    allocated_storage          = 20
+    availability_zone          = data.aws_availability_zones.available.names[0]
+    engine_version             = "3.5.4"
+    kms_key_arn                = module.dms_test_kms.key_arn
+    multi_az                   = false
+    replication_instance_class = "dms.t3.medium"
+    inbound_cidr               = module.vpc.vpc_cidr_block
+    apply_immediately          = true
+  }
+
+  dms_source = {
+    engine_name                 = "oracle"
+    secrets_manager_arn         = aws_secretsmanager_secret.dms_sandbox_secret.arn
+    secrets_manager_kms_arn     = module.dms_test_kms.key_arn
+    sid                         = aws_db_instance.dms_test.db_name
+    extra_connection_attributes = "addSupplementalLogging=N;useBfile=Y;useLogminerReader=N;"
+    cdc_start_time              = "2025-04-02T12:00:00Z"
+  }
+
+  replication_task_id = {
+    full_load = "test-dms-full-load"
+    cdc       = "test-dms-cdc"
+  }
+
+  dms_mapping_rules = {
+    bucket = aws_s3_object.mappings.bucket
+    key    = aws_s3_object.mappings.key
+  }
+
+  tags = local.tags
+
+  glue_catalog_arn      = "arn:aws:glue:eu-west-1:12345678:catalog"
+  glue_catalog_role_arn = "arn:aws:iam::87654321:role/de-role"
+}
+```
+
+## Note
+
+Update the mappings.json to specify the mappings for the DMS task.
+This will be used to select the tables to be migrated.
+
+```json
+{
+    "schema": "ADMIN",
+    "objects_from": "oracle19_sandbox",
+    "extraction_date": "2024-06-25T13:47:00.688074",
+    "objects": [
+        "TEST_DATA"
+    ],
+    "blobs": [],
+    "columns_to_exclude":[]
+}
+```
+
+## Source commit-position column
+
+Every replicated row is augmented with a column carrying the source DB's
+commit position (DMS task header `$AR_H_STREAM_POSITION`). The column name
+is engine-specific so it matches the source's native terminology:
+
+| `dms_source.engine_name` | Column name      | Meaning                                           |
+|--------------------------|------------------|---------------------------------------------------|
+| `oracle`                 | `SCN`            | Oracle System Change Number                       |
+| `postgres`               | `STREAM_POSITION`| Postgres WAL position (LSN) exposed by DMS        |
+
+Both the DMS task transformation rule and the metadata generator pick the
+name from `var.dms_source.engine_name`, so downstream Parquet files and
+Glue/metadata schemas stay in sync.
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| <a name="input_create_premigration_assessment_resources"></a> [create\_premigration\_assessment\_resources](#input\_create\_premigration\_assessment\_resources) | Whether to create pre-requisites for DMS PreMigration Assessment to be run manually | `bool` | `false` | no |
+| <a name="input_db"></a> [db](#input\_db) | The database name | `string` | n/a | yes |
+| <a name="input_dms_mapping_rules"></a> [dms\_mapping\_rules](#input\_dms\_mapping\_rules) | The path to the mapping rules file | <pre>object({<br/>    bucket = string<br/>    key    = string<br/>  })</pre> | n/a | yes |
+| <a name="input_dms_replication_instance"></a> [dms\_replication\_instance](#input\_dms\_replication\_instance) | Properties of the dms replication instance to be used in the migration | <pre>object({<br/>    replication_instance_id      = string<br/>    subnet_group_id              = optional(string)<br/>    subnet_group_name            = optional(string)<br/>    subnet_ids                   = optional(list(string))<br/>    allocated_storage            = number<br/>    availability_zone            = string<br/>    engine_version               = string<br/>    kms_key_arn                  = string<br/>    multi_az                     = bool<br/>    replication_instance_class   = string<br/>    inbound_cidr                 = string<br/>    apply_immediately            = optional(bool, false)<br/>    preferred_maintenance_window = optional(string, "sun:10:30-sun:14:30")<br/>  })</pre> | n/a | yes |
+| <a name="input_dms_source"></a> [dms\_source](#input\_dms\_source) | engine\_name: Database engine type ('oracle' or 'postgres')<br/>    secrets\_manager\_arn: ARN of the Secrets Manager secret containing database credentials<br/>    secrets\_manager\_kms\_arn: ARN of the KMS key encrypting the secret<br/>    sid: Oracle SID / service name (required for Oracle)<br/>    database\_name: Database name (required for Postgres)<br/>    extra\_connection\_attributes: Extra connection attributes for the DMS endpoint (e.g. "PluginName=test\_decoding;" for Postgres CDC)<br/>    cdc\_start\_time: The start time for the CDC task (must be after the database setup is complete to ensure logs/WAL are available) | <pre>object({<br/>    engine_name                 = string,<br/>    secrets_manager_arn         = string,<br/>    secrets_manager_kms_arn     = string,<br/>    sid                         = optional(string)<br/>    database_name               = optional(string)<br/>    extra_connection_attributes = optional(string)<br/>    cdc_start_time              = optional(string)<br/>  })</pre> | n/a | yes |
+| <a name="input_environment"></a> [environment](#input\_environment) | The environment name | `string` | n/a | yes |
+| <a name="input_glue_catalog_arn"></a> [glue\_catalog\_arn](#input\_glue\_catalog\_arn) | Which glue catalog to grant metadata generator permissions to (optional) | `string` | `""` | no |
+| <a name="input_glue_catalog_role_arn"></a> [glue\_catalog\_role\_arn](#input\_glue\_catalog\_role\_arn) | Which role to use to access glue catalog (optional) | `string` | `""` | no |
+| <a name="input_independent_full_loads"></a> [independent\_full\_loads](#input\_independent\_full\_loads) | A list of full load tasks to be set up for tables existing in the upstream database but not downstream, including the name of the task (excluding the database name and 'full-load') and the bucket and object reference within it where the table mapping json file for the task exists | <pre>map(object({<br/>    full_load_name = string<br/>    path = object({<br/>      bucket = string<br/>      key    = string<br/>    })<br/>  }))</pre> | `{}` | no |
+| <a name="input_output_bucket"></a> [output\_bucket](#input\_output\_bucket) | The name of the output bucket (optional, bucket will be generated if not specified)<br/>    Note that if this is specified, it is assumed all related aws\_s3\_bucket\_* resources are being managed externally and so will not be generated within this module | `string` | `""` | no |
+| <a name="input_output_key_prefix"></a> [output\_key\_prefix](#input\_output\_key\_prefix) | The prefix to use for the output key in the S3 bucket | `string` | `"dms_output"` | no |
+| <a name="input_output_key_suffix"></a> [output\_key\_suffix](#input\_output\_key\_suffix) | The suffix to use for the output key in the S3 bucket | `string` | `""` | no |
+| <a name="input_postgres_replication_slot_lag_threshold_bytes"></a> [postgres\_replication\_slot\_lag\_threshold\_bytes](#input\_postgres\_replication\_slot\_lag\_threshold\_bytes) | Threshold in bytes for the OldestReplicationSlotLag alarm on the source Postgres RDS. Default 10 GiB. | `number` | `10737418240` | no |
+| <a name="input_postgres_transaction_logs_disk_usage_threshold_bytes"></a> [postgres\_transaction\_logs\_disk\_usage\_threshold\_bytes](#input\_postgres\_transaction\_logs\_disk\_usage\_threshold\_bytes) | Threshold in bytes for the TransactionLogsDiskUsage alarm on the source Postgres RDS. Default 50 GiB. | `number` | `53687091200` | no |
+| <a name="input_replication_task_id"></a> [replication\_task\_id](#input\_replication\_task\_id) | The replication task names to use for the full load and cdc tasks (cdc is optional, if not specified no cdc task will be created) | <pre>object({<br/>    full_load = string<br/>    cdc       = optional(string)<br/>  })</pre> | n/a | yes |
+| <a name="input_retry_failed_after_recreate_metadata"></a> [retry\_failed\_after\_recreate\_metadata](#input\_retry\_failed\_after\_recreate\_metadata) | Whether to retry validation of failures after regenerating metadata | `bool` | `true` | no |
+| <a name="input_s3_target_config"></a> [s3\_target\_config](#input\_s3\_target\_config) | n/a | <pre>object({<br/>    add_column_name       = bool<br/>    max_batch_interval    = number<br/>    min_file_size         = number<br/>    timestamp_column_name = string<br/>  })</pre> | <pre>{<br/>  "add_column_name": true,<br/>  "max_batch_interval": 3600,<br/>  "min_file_size": 32000,<br/>  "timestamp_column_name": "EXTRACTION_TIMESTAMP"<br/>}</pre> | no |
+| <a name="input_slack_webhook_secret_id"></a> [slack\_webhook\_secret\_id](#input\_slack\_webhook\_secret\_id) | Webhook used to send DMS alerts | `string` | n/a | yes |
+| <a name="input_source_rds_instance_id"></a> [source\_rds\_instance\_id](#input\_source\_rds\_instance\_id) | DBInstanceIdentifier of the source RDS instance. Required when engine\_name is 'postgres' to enable replication-slot CloudWatch alarms; ignored otherwise. | `string` | `null` | no |
+| <a name="input_tags"></a> [tags](#input\_tags) | tags for the module | `map(string)` | n/a | yes |
+| <a name="input_valid_files_mutable"></a> [valid\_files\_mutable](#input\_valid\_files\_mutable) | If false, copy valid files to their destination bucket with a datetime infix | `bool` | `false` | no |
+| <a name="input_validation_sqs_kms_key_arn"></a> [validation\_sqs\_kms\_key\_arn](#input\_validation\_sqs\_kms\_key\_arn) | ARN of the customer-managed KMS key used to encrypt the validation SQS queues.<br/>    If the queues receive S3 event notifications, ensure the CMK policy grants the required permissions for S3 to use the key via SQS (for example, allowing the `s3.amazonaws.com` service principal to use the key subject to appropriate conditions).<br/>    Without these grants, Terraform may apply successfully but S3 -> SQS notifications can fail at runtime with KMS access errors. | `string` | n/a | yes |
+| <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | The VPC ID | `string` | n/a | yes |
+| <a name="input_write_metadata_to_glue_catalog"></a> [write\_metadata\_to\_glue\_catalog](#input\_write\_metadata\_to\_glue\_catalog) | Whether to write metadata to glue catalog | `bool` | `true` | no |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| <a name="output_dms_cdc_task_arn"></a> [dms\_cdc\_task\_arn](#output\_dms\_cdc\_task\_arn) | The ARN for the AWS DMS cdc task ARN |
+| <a name="output_dms_full_load_task_arn"></a> [dms\_full\_load\_task\_arn](#output\_dms\_full\_load\_task\_arn) | The ARN for the AWS DMS full-load task ARN |
+| <a name="output_dms_role_arn"></a> [dms\_role\_arn](#output\_dms\_role\_arn) | The ARN for the AWS role created for the DMS target endpoint |
+| <a name="output_independent_terraform_rules"></a> [independent\_terraform\_rules](#output\_independent\_terraform\_rules) | n/a |
+| <a name="output_metadata_generator_lambda_arn"></a> [metadata\_generator\_lambda\_arn](#output\_metadata\_generator\_lambda\_arn) | The ARN for the metadata\_generator AWS Lambda function |
+| <a name="output_terraform_rules"></a> [terraform\_rules](#output\_terraform\_rules) | n/a |
+| <a name="output_validation_lambda_arn"></a> [validation\_lambda\_arn](#output\_validation\_lambda\_arn) | The ARN for the validation AWS Lambda function |
+
+## Resources
+
+| Name | Type |
+|------|------|
+| [aws_cloudwatch_event_rule.dms_events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
+| [aws_cloudwatch_event_rule.dms_events_by_category](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
+| [aws_cloudwatch_event_rule.dms_instance_events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_rule) | resource |
+| [aws_cloudwatch_event_target.dms_instance_to_sns](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_event_target.dms_to_sns](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_event_target.dms_to_sns_by_category](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_event_target.eventbridge_dms_events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_event_target.eventbridge_dms_events_by_category](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_event_target.eventbridge_dms_instance_events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_event_target) | resource |
+| [aws_cloudwatch_log_group.eventbridge](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
+| [aws_cloudwatch_log_resource_policy.eventbridge](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_resource_policy) | resource |
+| [aws_cloudwatch_metric_alarm.postgres_replication_slot_lag](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
+| [aws_cloudwatch_metric_alarm.postgres_transaction_logs_disk_usage](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
+| [aws_cloudwatch_metric_alarm.validation_dlq_depth](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
+| [aws_dms_endpoint.source](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_endpoint) | resource |
+| [aws_dms_replication_instance.instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_instance) | resource |
+| [aws_dms_replication_subnet_group.replication_subnet_group](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_subnet_group) | resource |
+| [aws_dms_replication_task.cdc_replication_task](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_task) | resource |
+| [aws_dms_replication_task.full_load_replication_task](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_task) | resource |
+| [aws_dms_replication_task.independent_full_load_replication_task](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_task) | resource |
+| [aws_dms_s3_endpoint.s3_target](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_s3_endpoint) | resource |
+| [aws_iam_role.dms](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.dms_cloudwatch](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.dms_premigration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role.eventbridge](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) | resource |
+| [aws_iam_role_policy.dms](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy.dms_premigration](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy.eventbridge_cloudwatch_publish](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy.eventbridge_sns_publish](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy.validation_lambda_sqs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy) | resource |
+| [aws_iam_role_policy_attachment.dms-cloudwatch-logs-role-AmazonDMSCloudWatchLogsRole](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_iam_role_policy_attachment.dms-vpc-role-AmazonDMSVPCManagementRole](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) | resource |
+| [aws_lambda_event_source_mapping.validation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_event_source_mapping) | resource |
+| [aws_s3_bucket.invalid](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket.lambda](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket.landing](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket.premigration_assessment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket.raw_history](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket.validation_metadata](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket) | resource |
+| [aws_s3_bucket_notification.landing](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_notification) | resource |
+| [aws_s3_bucket_ownership_controls.invalid](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
+| [aws_s3_bucket_ownership_controls.landing](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
+| [aws_s3_bucket_ownership_controls.premigration_assessment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
+| [aws_s3_bucket_ownership_controls.raw_history](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
+| [aws_s3_bucket_ownership_controls.validation_metadata](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_ownership_controls) | resource |
+| [aws_s3_bucket_public_access_block.invalid](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_public_access_block.lambda](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_public_access_block.landing](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_public_access_block.premigration_assessment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_public_access_block.raw_history](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_public_access_block.validation_metadata](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.invalid](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.lambda](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.landing](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.premigration_assessment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.raw_history](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_server_side_encryption_configuration.validation_metadata](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
+| [aws_s3_bucket_versioning.invalid](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_s3_bucket_versioning.lambda](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_s3_bucket_versioning.landing](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_s3_bucket_versioning.premigration_assessment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_s3_bucket_versioning.raw_history](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_s3_bucket_versioning.validation_metadata](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_versioning) | resource |
+| [aws_security_group.metadata_generator_lambda_function](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
+| [aws_security_group.replication_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
+| [aws_sns_topic.dms_events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic) | resource |
+| [aws_sns_topic_policy.dms_events](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic_policy) | resource |
+| [aws_sns_topic_subscription.slack](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic_subscription) | resource |
+| [aws_sqs_queue.validation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue) | resource |
+| [aws_sqs_queue.validation_dlq](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue) | resource |
+| [aws_sqs_queue_policy.validation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue_policy) | resource |
+| [aws_vpc_security_group_egress_rule.replication_instance_outbound](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
+<!-- END_TF_DOCS -->
