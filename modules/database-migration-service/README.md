@@ -1,4 +1,3 @@
-<!-- BEGIN_TF_DOCS -->
 # DMS Terraform Module
 This Terraform module provisions an AWS DMS (Database Migration Service) setup for replicating data from an Oracle database to an S3-based data lake architecture.
 
@@ -128,46 +127,27 @@ Both the DMS task transformation rule and the metadata generator pick the
 name from `var.dms_source.engine_name`, so downstream Parquet files and
 Glue/metadata schemas stay in sync.
 
-## Inputs
+<!-- BEGIN_TF_DOCS -->
+## Requirements
 
-| Name | Description | Type | Default | Required |
-|------|-------------|------|---------|:--------:|
-| <a name="input_create_premigration_assessment_resources"></a> [create\_premigration\_assessment\_resources](#input\_create\_premigration\_assessment\_resources) | Whether to create pre-requisites for DMS PreMigration Assessment to be run manually | `bool` | `false` | no |
-| <a name="input_db"></a> [db](#input\_db) | The database name | `string` | n/a | yes |
-| <a name="input_dms_mapping_rules"></a> [dms\_mapping\_rules](#input\_dms\_mapping\_rules) | The path to the mapping rules file | <pre>object({<br/>    bucket = string<br/>    key    = string<br/>  })</pre> | n/a | yes |
-| <a name="input_dms_replication_instance"></a> [dms\_replication\_instance](#input\_dms\_replication\_instance) | Properties of the dms replication instance to be used in the migration | <pre>object({<br/>    replication_instance_id      = string<br/>    subnet_group_id              = optional(string)<br/>    subnet_group_name            = optional(string)<br/>    subnet_ids                   = optional(list(string))<br/>    allocated_storage            = number<br/>    availability_zone            = string<br/>    engine_version               = string<br/>    kms_key_arn                  = string<br/>    multi_az                     = bool<br/>    replication_instance_class   = string<br/>    inbound_cidr                 = string<br/>    apply_immediately            = optional(bool, false)<br/>    preferred_maintenance_window = optional(string, "sun:10:30-sun:14:30")<br/>  })</pre> | n/a | yes |
-| <a name="input_dms_source"></a> [dms\_source](#input\_dms\_source) | engine\_name: Database engine type ('oracle' or 'postgres')<br/>    secrets\_manager\_arn: ARN of the Secrets Manager secret containing database credentials<br/>    secrets\_manager\_kms\_arn: ARN of the KMS key encrypting the secret<br/>    sid: Oracle SID / service name (required for Oracle)<br/>    database\_name: Database name (required for Postgres)<br/>    extra\_connection\_attributes: Extra connection attributes for the DMS endpoint (e.g. "PluginName=test\_decoding;" for Postgres CDC)<br/>    cdc\_start\_time: The start time for the CDC task (must be after the database setup is complete to ensure logs/WAL are available) | <pre>object({<br/>    engine_name                 = string,<br/>    secrets_manager_arn         = string,<br/>    secrets_manager_kms_arn     = string,<br/>    sid                         = optional(string)<br/>    database_name               = optional(string)<br/>    extra_connection_attributes = optional(string)<br/>    cdc_start_time              = optional(string)<br/>  })</pre> | n/a | yes |
-| <a name="input_environment"></a> [environment](#input\_environment) | The environment name | `string` | n/a | yes |
-| <a name="input_glue_catalog_arn"></a> [glue\_catalog\_arn](#input\_glue\_catalog\_arn) | Which glue catalog to grant metadata generator permissions to (optional) | `string` | `""` | no |
-| <a name="input_glue_catalog_role_arn"></a> [glue\_catalog\_role\_arn](#input\_glue\_catalog\_role\_arn) | Which role to use to access glue catalog (optional) | `string` | `""` | no |
-| <a name="input_independent_full_loads"></a> [independent\_full\_loads](#input\_independent\_full\_loads) | A list of full load tasks to be set up for tables existing in the upstream database but not downstream, including the name of the task (excluding the database name and 'full-load') and the bucket and object reference within it where the table mapping json file for the task exists | <pre>map(object({<br/>    full_load_name = string<br/>    path = object({<br/>      bucket = string<br/>      key    = string<br/>    })<br/>  }))</pre> | `{}` | no |
-| <a name="input_output_bucket"></a> [output\_bucket](#input\_output\_bucket) | The name of the output bucket (optional, bucket will be generated if not specified)<br/>    Note that if this is specified, it is assumed all related aws\_s3\_bucket\_* resources are being managed externally and so will not be generated within this module | `string` | `""` | no |
-| <a name="input_output_key_prefix"></a> [output\_key\_prefix](#input\_output\_key\_prefix) | The prefix to use for the output key in the S3 bucket | `string` | `"dms_output"` | no |
-| <a name="input_output_key_suffix"></a> [output\_key\_suffix](#input\_output\_key\_suffix) | The suffix to use for the output key in the S3 bucket | `string` | `""` | no |
-| <a name="input_postgres_replication_slot_lag_threshold_bytes"></a> [postgres\_replication\_slot\_lag\_threshold\_bytes](#input\_postgres\_replication\_slot\_lag\_threshold\_bytes) | Threshold in bytes for the OldestReplicationSlotLag alarm on the source Postgres RDS. Default 10 GiB. | `number` | `10737418240` | no |
-| <a name="input_postgres_transaction_logs_disk_usage_threshold_bytes"></a> [postgres\_transaction\_logs\_disk\_usage\_threshold\_bytes](#input\_postgres\_transaction\_logs\_disk\_usage\_threshold\_bytes) | Threshold in bytes for the TransactionLogsDiskUsage alarm on the source Postgres RDS. Default 50 GiB. | `number` | `53687091200` | no |
-| <a name="input_replication_task_id"></a> [replication\_task\_id](#input\_replication\_task\_id) | The replication task names to use for the full load and cdc tasks (cdc is optional, if not specified no cdc task will be created) | <pre>object({<br/>    full_load = string<br/>    cdc       = optional(string)<br/>  })</pre> | n/a | yes |
-| <a name="input_retry_failed_after_recreate_metadata"></a> [retry\_failed\_after\_recreate\_metadata](#input\_retry\_failed\_after\_recreate\_metadata) | Whether to retry validation of failures after regenerating metadata | `bool` | `true` | no |
-| <a name="input_s3_target_config"></a> [s3\_target\_config](#input\_s3\_target\_config) | n/a | <pre>object({<br/>    add_column_name       = bool<br/>    max_batch_interval    = number<br/>    min_file_size         = number<br/>    timestamp_column_name = string<br/>  })</pre> | <pre>{<br/>  "add_column_name": true,<br/>  "max_batch_interval": 3600,<br/>  "min_file_size": 32000,<br/>  "timestamp_column_name": "EXTRACTION_TIMESTAMP"<br/>}</pre> | no |
-| <a name="input_slack_webhook_secret_id"></a> [slack\_webhook\_secret\_id](#input\_slack\_webhook\_secret\_id) | Webhook used to send DMS alerts | `string` | n/a | yes |
-| <a name="input_source_rds_instance_id"></a> [source\_rds\_instance\_id](#input\_source\_rds\_instance\_id) | DBInstanceIdentifier of the source RDS instance. Required when engine\_name is 'postgres' to enable replication-slot CloudWatch alarms; ignored otherwise. | `string` | `null` | no |
-| <a name="input_tags"></a> [tags](#input\_tags) | tags for the module | `map(string)` | n/a | yes |
-| <a name="input_valid_files_mutable"></a> [valid\_files\_mutable](#input\_valid\_files\_mutable) | If false, copy valid files to their destination bucket with a datetime infix | `bool` | `false` | no |
-| <a name="input_validation_sqs_kms_key_arn"></a> [validation\_sqs\_kms\_key\_arn](#input\_validation\_sqs\_kms\_key\_arn) | ARN of the customer-managed KMS key used to encrypt the validation SQS queues.<br/>    If the queues receive S3 event notifications, ensure the CMK policy grants the required permissions for S3 to use the key via SQS (for example, allowing the `s3.amazonaws.com` service principal to use the key subject to appropriate conditions).<br/>    Without these grants, Terraform may apply successfully but S3 -> SQS notifications can fail at runtime with KMS access errors. | `string` | n/a | yes |
-| <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | The VPC ID | `string` | n/a | yes |
-| <a name="input_write_metadata_to_glue_catalog"></a> [write\_metadata\_to\_glue\_catalog](#input\_write\_metadata\_to\_glue\_catalog) | Whether to write metadata to glue catalog | `bool` | `true` | no |
+| Name | Version |
+|------|---------|
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0.0, < 2.0.0 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | ~> 6.42 |
 
-## Outputs
+## Providers
 
-| Name | Description |
-|------|-------------|
-| <a name="output_dms_cdc_task_arn"></a> [dms\_cdc\_task\_arn](#output\_dms\_cdc\_task\_arn) | The ARN for the AWS DMS cdc task ARN |
-| <a name="output_dms_full_load_task_arn"></a> [dms\_full\_load\_task\_arn](#output\_dms\_full\_load\_task\_arn) | The ARN for the AWS DMS full-load task ARN |
-| <a name="output_dms_role_arn"></a> [dms\_role\_arn](#output\_dms\_role\_arn) | The ARN for the AWS role created for the DMS target endpoint |
-| <a name="output_independent_terraform_rules"></a> [independent\_terraform\_rules](#output\_independent\_terraform\_rules) | n/a |
-| <a name="output_metadata_generator_lambda_arn"></a> [metadata\_generator\_lambda\_arn](#output\_metadata\_generator\_lambda\_arn) | The ARN for the metadata\_generator AWS Lambda function |
-| <a name="output_terraform_rules"></a> [terraform\_rules](#output\_terraform\_rules) | n/a |
-| <a name="output_validation_lambda_arn"></a> [validation\_lambda\_arn](#output\_validation\_lambda\_arn) | The ARN for the validation AWS Lambda function |
+| Name | Version |
+|------|---------|
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.52.0 |
+
+## Modules
+
+| Name | Source | Version |
+|------|--------|---------|
+| <a name="module_independent_metadata_generator"></a> [independent\_metadata\_generator](#module\_independent\_metadata\_generator) | git::https://github.com/terraform-aws-modules/terraform-aws-lambda | 84dfbfddf9483bc56afa0aff516177c03652f0c7 |
+| <a name="module_metadata_generator"></a> [metadata\_generator](#module\_metadata\_generator) | git::https://github.com/terraform-aws-modules/terraform-aws-lambda | 84dfbfddf9483bc56afa0aff516177c03652f0c7 |
+| <a name="module_validation_lambda_function"></a> [validation\_lambda\_function](#module\_validation\_lambda\_function) | git::https://github.com/terraform-aws-modules/terraform-aws-lambda | 84dfbfddf9483bc56afa0aff516177c03652f0c7 |
 
 ## Resources
 
@@ -245,4 +225,58 @@ Glue/metadata schemas stay in sync.
 | [aws_sqs_queue.validation_dlq](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue) | resource |
 | [aws_sqs_queue_policy.validation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue_policy) | resource |
 | [aws_vpc_security_group_egress_rule.replication_instance_outbound](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
+| [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
+| [aws_iam_policy_document.eventbridge](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.metadata_generator_lambda_function](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.sns_topic_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.validation_lambda_function](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.validation_lambda_sqs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_iam_policy_document.validation_queue](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
+| [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
+| [aws_s3_object.independent_mapping_rules](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/s3_object) | data source |
+| [aws_s3_object.mapping_rules](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/s3_object) | data source |
+| [aws_secretsmanager_secret_version.database_credentials](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/secretsmanager_secret_version) | data source |
+| [aws_secretsmanager_secret_version.slack_webhook](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/secretsmanager_secret_version) | data source |
+| [aws_subnets.subnet_ids_vpc_subnets](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/subnets) | data source |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| <a name="input_create_premigration_assessment_resources"></a> [create\_premigration\_assessment\_resources](#input\_create\_premigration\_assessment\_resources) | Whether to create pre-requisites for DMS PreMigration Assessment to be run manually | `bool` | `false` | no |
+| <a name="input_db"></a> [db](#input\_db) | The database name | `string` | n/a | yes |
+| <a name="input_dms_mapping_rules"></a> [dms\_mapping\_rules](#input\_dms\_mapping\_rules) | The path to the mapping rules file | <pre>object({<br/>    bucket = string<br/>    key    = string<br/>  })</pre> | n/a | yes |
+| <a name="input_dms_replication_instance"></a> [dms\_replication\_instance](#input\_dms\_replication\_instance) | Properties of the dms replication instance to be used in the migration | <pre>object({<br/>    replication_instance_id      = string<br/>    subnet_group_id              = optional(string)<br/>    subnet_group_name            = optional(string)<br/>    subnet_ids                   = optional(list(string))<br/>    allocated_storage            = number<br/>    availability_zone            = string<br/>    engine_version               = string<br/>    kms_key_arn                  = string<br/>    multi_az                     = bool<br/>    replication_instance_class   = string<br/>    inbound_cidr                 = string<br/>    apply_immediately            = optional(bool, false)<br/>    preferred_maintenance_window = optional(string, "sun:10:30-sun:14:30")<br/>  })</pre> | n/a | yes |
+| <a name="input_dms_source"></a> [dms\_source](#input\_dms\_source) | engine\_name: Database engine type ('oracle' or 'postgres')<br/>    secrets\_manager\_arn: ARN of the Secrets Manager secret containing database credentials<br/>    secrets\_manager\_kms\_arn: ARN of the KMS key encrypting the secret<br/>    sid: Oracle SID / service name (required for Oracle)<br/>    database\_name: Database name (required for Postgres)<br/>    extra\_connection\_attributes: Extra connection attributes for the DMS endpoint (e.g. "PluginName=test\_decoding;" for Postgres CDC)<br/>    cdc\_start\_time: The start time for the CDC task (must be after the database setup is complete to ensure logs/WAL are available) | <pre>object({<br/>    engine_name                 = string,<br/>    secrets_manager_arn         = string,<br/>    secrets_manager_kms_arn     = string,<br/>    sid                         = optional(string)<br/>    database_name               = optional(string)<br/>    extra_connection_attributes = optional(string)<br/>    cdc_start_time              = optional(string)<br/>  })</pre> | n/a | yes |
+| <a name="input_environment"></a> [environment](#input\_environment) | The environment name | `string` | n/a | yes |
+| <a name="input_glue_catalog_arn"></a> [glue\_catalog\_arn](#input\_glue\_catalog\_arn) | Which glue catalog to grant metadata generator permissions to (optional) | `string` | `""` | no |
+| <a name="input_glue_catalog_role_arn"></a> [glue\_catalog\_role\_arn](#input\_glue\_catalog\_role\_arn) | Which role to use to access glue catalog (optional) | `string` | `""` | no |
+| <a name="input_independent_full_loads"></a> [independent\_full\_loads](#input\_independent\_full\_loads) | A list of full load tasks to be set up for tables existing in the upstream database but not downstream, including the name of the task (excluding the database name and 'full-load') and the bucket and object reference within it where the table mapping json file for the task exists | <pre>map(object({<br/>    full_load_name = string<br/>    path = object({<br/>      bucket = string<br/>      key    = string<br/>    })<br/>  }))</pre> | `{}` | no |
+| <a name="input_output_bucket"></a> [output\_bucket](#input\_output\_bucket) | The name of the output bucket (optional, bucket will be generated if not specified)<br/>    Note that if this is specified, it is assumed all related aws\_s3\_bucket\_* resources are being managed externally and so will not be generated within this module | `string` | `""` | no |
+| <a name="input_output_key_prefix"></a> [output\_key\_prefix](#input\_output\_key\_prefix) | The prefix to use for the output key in the S3 bucket | `string` | `"dms_output"` | no |
+| <a name="input_output_key_suffix"></a> [output\_key\_suffix](#input\_output\_key\_suffix) | The suffix to use for the output key in the S3 bucket | `string` | `""` | no |
+| <a name="input_postgres_replication_slot_lag_threshold_bytes"></a> [postgres\_replication\_slot\_lag\_threshold\_bytes](#input\_postgres\_replication\_slot\_lag\_threshold\_bytes) | Threshold in bytes for the OldestReplicationSlotLag alarm on the source Postgres RDS. Default 10 GiB. | `number` | `10737418240` | no |
+| <a name="input_postgres_transaction_logs_disk_usage_threshold_bytes"></a> [postgres\_transaction\_logs\_disk\_usage\_threshold\_bytes](#input\_postgres\_transaction\_logs\_disk\_usage\_threshold\_bytes) | Threshold in bytes for the TransactionLogsDiskUsage alarm on the source Postgres RDS. Default 50 GiB. | `number` | `53687091200` | no |
+| <a name="input_replication_task_id"></a> [replication\_task\_id](#input\_replication\_task\_id) | The replication task names to use for the full load and cdc tasks (cdc is optional, if not specified no cdc task will be created) | <pre>object({<br/>    full_load = string<br/>    cdc       = optional(string)<br/>  })</pre> | n/a | yes |
+| <a name="input_retry_failed_after_recreate_metadata"></a> [retry\_failed\_after\_recreate\_metadata](#input\_retry\_failed\_after\_recreate\_metadata) | Whether to retry validation of failures after regenerating metadata | `bool` | `true` | no |
+| <a name="input_s3_target_config"></a> [s3\_target\_config](#input\_s3\_target\_config) | n/a | <pre>object({<br/>    add_column_name       = bool<br/>    max_batch_interval    = number<br/>    min_file_size         = number<br/>    timestamp_column_name = string<br/>  })</pre> | <pre>{<br/>  "add_column_name": true,<br/>  "max_batch_interval": 3600,<br/>  "min_file_size": 32000,<br/>  "timestamp_column_name": "EXTRACTION_TIMESTAMP"<br/>}</pre> | no |
+| <a name="input_slack_webhook_secret_id"></a> [slack\_webhook\_secret\_id](#input\_slack\_webhook\_secret\_id) | Webhook used to send DMS alerts | `string` | n/a | yes |
+| <a name="input_source_rds_instance_id"></a> [source\_rds\_instance\_id](#input\_source\_rds\_instance\_id) | DBInstanceIdentifier of the source RDS instance. Required when engine\_name is 'postgres' to enable replication-slot CloudWatch alarms; ignored otherwise. | `string` | `null` | no |
+| <a name="input_tags"></a> [tags](#input\_tags) | tags for the module | `map(string)` | n/a | yes |
+| <a name="input_valid_files_mutable"></a> [valid\_files\_mutable](#input\_valid\_files\_mutable) | If false, copy valid files to their destination bucket with a datetime infix | `bool` | `false` | no |
+| <a name="input_validation_sqs_kms_key_arn"></a> [validation\_sqs\_kms\_key\_arn](#input\_validation\_sqs\_kms\_key\_arn) | ARN of the customer-managed KMS key used to encrypt the validation SQS queues.<br/>    If the queues receive S3 event notifications, ensure the CMK policy grants the required permissions for S3 to use the key via SQS (for example, allowing the `s3.amazonaws.com` service principal to use the key subject to appropriate conditions).<br/>    Without these grants, Terraform may apply successfully but S3 -> SQS notifications can fail at runtime with KMS access errors. | `string` | n/a | yes |
+| <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | The VPC ID | `string` | n/a | yes |
+| <a name="input_write_metadata_to_glue_catalog"></a> [write\_metadata\_to\_glue\_catalog](#input\_write\_metadata\_to\_glue\_catalog) | Whether to write metadata to glue catalog | `bool` | `true` | no |
+
+## Outputs
+
+| Name | Description |
+|------|-------------|
+| <a name="output_dms_cdc_task_arn"></a> [dms\_cdc\_task\_arn](#output\_dms\_cdc\_task\_arn) | The ARN for the AWS DMS cdc task ARN |
+| <a name="output_dms_full_load_task_arn"></a> [dms\_full\_load\_task\_arn](#output\_dms\_full\_load\_task\_arn) | The ARN for the AWS DMS full-load task ARN |
+| <a name="output_dms_role_arn"></a> [dms\_role\_arn](#output\_dms\_role\_arn) | The ARN for the AWS role created for the DMS target endpoint |
+| <a name="output_independent_terraform_rules"></a> [independent\_terraform\_rules](#output\_independent\_terraform\_rules) | n/a |
+| <a name="output_metadata_generator_lambda_arn"></a> [metadata\_generator\_lambda\_arn](#output\_metadata\_generator\_lambda\_arn) | The ARN for the metadata\_generator AWS Lambda function |
+| <a name="output_terraform_rules"></a> [terraform\_rules](#output\_terraform\_rules) | n/a |
+| <a name="output_validation_lambda_arn"></a> [validation\_lambda\_arn](#output\_validation\_lambda\_arn) | The ARN for the validation AWS Lambda function |
 <!-- END_TF_DOCS -->

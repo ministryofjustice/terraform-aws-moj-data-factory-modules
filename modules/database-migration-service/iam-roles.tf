@@ -97,7 +97,7 @@ resource "aws_iam_role_policy_attachment" "dms-cloudwatch-logs-role-AmazonDMSClo
   role       = aws_iam_role.dms_cloudwatch.name
 }
 
-# IAM Role for DMS Premigration Assessmeent
+# IAM Role for DMS Premigration Assessment
 resource "aws_iam_role" "dms_premigration" {
   count       = var.create_premigration_assessment_resources ? 1 : 0
   name_prefix = "dms-premigration-assessment-role-"
