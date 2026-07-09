@@ -56,6 +56,8 @@ resource "aws_s3_bucket" "landing" {
   #checkov:skip=CKV2_AWS_61: no lifecycle rules
   #checkov:skip=CKV_AWS_145: not using kms here
   bucket_prefix = "${var.db}-landing-"
+
+  tags = var.tags
 }
 
 resource "aws_s3_bucket_ownership_controls" "landing" {
