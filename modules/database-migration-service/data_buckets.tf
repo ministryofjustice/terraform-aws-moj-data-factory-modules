@@ -229,6 +229,8 @@ resource "aws_s3_bucket" "premigration_assessment" {
   #checkov:skip=CKV_AWS_145: not using kms here
   count         = var.create_premigration_assessment_resources ? 1 : 0
   bucket_prefix = "${var.db}-pma-"
+
+  tags = var.tags
 }
 
 resource "aws_s3_bucket_ownership_controls" "premigration_assessment" {
