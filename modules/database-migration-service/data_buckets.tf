@@ -125,6 +125,8 @@ resource "aws_s3_bucket" "raw_history" {
   #checkov:skip=CKV_AWS_145: not using kms here
   count         = length(var.output_bucket) > 0 ? 0 : 1
   bucket_prefix = "${var.db}-raw-history-"
+
+  tags = var.tags
 }
 
 # Only apply controls when we create the bucket
