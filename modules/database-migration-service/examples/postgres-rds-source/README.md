@@ -16,17 +16,17 @@ This example is for development/testing only and is intended to be cleanly destr
 
 ## Apply
 
-~~~bash
+```bash
 terraform init
 terraform plan
 terraform apply
-~~~
+```
 
 ## Destroy
 
-~~~bash
+```bash
 terraform destroy
-~~~
+```
 
 ## Notes
 
@@ -38,7 +38,7 @@ terraform destroy
 
 Example invoke:
 
-~~~bash
+```bash
 aws lambda invoke \
   --function-name "$(terraform output -raw sql_runner_lambda_name)" \
   --payload '{
@@ -50,7 +50,7 @@ aws lambda invoke \
     "sql_statements": ["SELECT 1"]
   }' \
   /dev/stdout
-~~~
+```
 
 The function returns an array of per-statement results.
 
@@ -59,7 +59,7 @@ The function returns an array of per-statement results.
 After provisioning the RDS instance, create the `dms_user` role via the Lambda console
 (Lambda → Functions → `<name_prefix>-sql-runner` → Test):
 
-~~~json
+```json
 {
   "host": "<rds_endpoint_from_terraform_output>",
   "port": 5432,
@@ -73,13 +73,13 @@ After provisioning the RDS instance, create the `dms_user` role via the Lambda c
     "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO dms_user"
   ]
 }
-~~~
+```
 
 ## Seed test data (50k rows)
 
 Create tables and insert test data covering key Postgres types (JSONB, TIMESTAMPTZ, UUID, TEXT[], INTERVAL, NUMERIC, etc.):
 
-~~~json
+```json
 {
   "host": "<rds_endpoint_from_terraform_output>",
   "port": 5432,
@@ -98,11 +98,11 @@ Create tables and insert test data covering key Postgres types (JSONB, TIMESTAMP
     "GRANT SELECT ON ALL TABLES IN SCHEMA public TO dms_user"
   ]
 }
-~~~
+```
 
-| Table | Rows | Key Types Tested |
-|-------|------|-----------------|
-| `customers` | 10,000 | SERIAL, VARCHAR, TIMESTAMPTZ, JSONB, BOOLEAN |
-| `orders` | 20,000 | INTEGER FK, DATE, NUMERIC(12,2), UUID, TEXT |
-| `products` | 5,000 | VARCHAR UNIQUE, DOUBLE PRECISION, TEXT[], BYTEA, TIMESTAMP |
-| `audit_log` | 15,000 | BIGSERIAL, JSONB (nullable), INTERVAL |
+| Table       | Rows   | Key Types Tested                                           |
+| ----------- | ------ | ---------------------------------------------------------- |
+| `customers` | 10,000 | SERIAL, VARCHAR, TIMESTAMPTZ, JSONB, BOOLEAN               |
+| `orders`    | 20,000 | INTEGER FK, DATE, NUMERIC(12,2), UUID, TEXT                |
+| `products`  | 5,000  | VARCHAR UNIQUE, DOUBLE PRECISION, TEXT[], BYTEA, TIMESTAMP |
+| `audit_log` | 15,000 | BIGSERIAL, JSONB (nullable), INTERVAL                      |

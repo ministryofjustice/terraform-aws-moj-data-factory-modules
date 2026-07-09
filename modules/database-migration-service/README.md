@@ -1,7 +1,9 @@
 # DMS Terraform Module
+
 This Terraform module provisions an AWS DMS (Database Migration Service) setup for replicating data from an Oracle database to an S3-based data lake architecture.
 
 It automates the creation and configuration of the following components:
+
 - A DMS replication instance and endpoints
 - Oracle source configuration (via Secrets Manager)
 - S3 target configuration and buckets
@@ -13,14 +15,16 @@ It automates the creation and configuration of the following components:
 - EventBridge and SNS for alerts and notifications to Slack
 
 The module requires the below components:
+
 - A private VPC
 - A KMS key to encode secrets and traffic
 - Slack webhook and database connection configuration via Secrets Manager
 
-# Architecture Overview
+## Architecture Overview
+
 ![DMS Module Diagram](./terraform-dms-module.excalidraw.png)
 
-*End-to-end DMS pipeline for Oracle to S3 replication with validation, landing, failure handling and Glue integration*
+_End-to-end DMS pipeline for Oracle to S3 replication with validation, landing, failure handling and Glue integration_
 
 ## Example
 
@@ -101,14 +105,12 @@ This will be used to select the tables to be migrated.
 
 ```json
 {
-    "schema": "ADMIN",
-    "objects_from": "oracle19_sandbox",
-    "extraction_date": "2024-06-25T13:47:00.688074",
-    "objects": [
-        "TEST_DATA"
-    ],
-    "blobs": [],
-    "columns_to_exclude":[]
+  "schema": "ADMIN",
+  "objects_from": "oracle19_sandbox",
+  "extraction_date": "2024-06-25T13:47:00.688074",
+  "objects": ["TEST_DATA"],
+  "blobs": [],
+  "columns_to_exclude": []
 }
 ```
 
@@ -118,14 +120,18 @@ Every replicated row is augmented with a column carrying the source DB's
 commit position (DMS task header `$AR_H_STREAM_POSITION`). The column name
 is engine-specific so it matches the source's native terminology:
 
-| `dms_source.engine_name` | Column name      | Meaning                                           |
-|--------------------------|------------------|---------------------------------------------------|
-| `oracle`                 | `SCN`            | Oracle System Change Number                       |
-| `postgres`               | `STREAM_POSITION`| Postgres WAL position (LSN) exposed by DMS        |
+| `dms_source.engine_name` | Column name       | Meaning                                    |
+| ------------------------ | ----------------- | ------------------------------------------ |
+| `oracle`                 | `SCN`             | Oracle System Change Number                |
+| `postgres`               | `STREAM_POSITION` | Postgres WAL position (LSN) exposed by DMS |
 
 Both the DMS task transformation rule and the metadata generator pick the
 name from `var.dms_source.engine_name`, so downstream Parquet files and
 Glue/metadata schemas stay in sync.
+
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<!-- textlint-disable -->
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -280,3 +286,5 @@ Glue/metadata schemas stay in sync.
 | <a name="output_terraform_rules"></a> [terraform\_rules](#output\_terraform\_rules) | n/a |
 | <a name="output_validation_lambda_arn"></a> [validation\_lambda\_arn](#output\_validation\_lambda\_arn) | The ARN for the validation AWS Lambda function |
 <!-- END_TF_DOCS -->
+
+<!-- prettier-ignore-end -->

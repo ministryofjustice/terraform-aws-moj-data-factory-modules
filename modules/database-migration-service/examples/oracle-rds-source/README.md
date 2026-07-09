@@ -7,7 +7,7 @@ Throwaway Oracle RDS instance + helper Lambda used to exercise the
 
 - An Oracle RDS instance (Standard Edition Two) in the shared MP VPC private subnets
 - A KMS key + alias for encryption at rest
-- Two Secrets Manager secrets holding the `admin` and `dms-user` logins  <!-- pragma: allowlist secret -->
+- Two Secrets Manager secrets holding the `admin` and `dms-user` logins <!-- pragma: allowlist secret -->
 - A security group allowing access from within the VPC
 - A Lambda (`oracle_sql_runner`) deployed into the same private subnets, used to
   execute arbitrary SQL against the DB without needing a bastion
@@ -24,7 +24,7 @@ checkout than the one that originally applied.
 ## Per-developer isolation
 
 All named resources are templated from `var.name_prefix` (default `laa-df-dev`)
-so the default apply re-uses the existing shared dev stack.
+so the default apply reuses the existing shared dev stack.
 
 If two developers want their own isolated stack in the same AWS account, set a
 unique prefix:

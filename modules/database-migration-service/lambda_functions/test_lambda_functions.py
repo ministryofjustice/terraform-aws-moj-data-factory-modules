@@ -1,12 +1,11 @@
+import importlib
 import json
 import os
-import importlib
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------
 # 0) Set env vars needed by BOTH modules *before import*
@@ -32,9 +31,7 @@ os.environ.setdefault("DMS_MAPPING_RULES_KEY", "rules.json")
 os.environ.setdefault("DB_SECRET_ARN", "arn:db-secret")
 os.environ.setdefault("USE_GLUE_CATALOG", "true")
 os.environ.setdefault("RAW_HISTORY_BUCKET", "raw-bucket")
-os.environ.setdefault(
-    "OUTPUT_KEY_PREFIX", "prefix"
-)  # used by metadata_generator handler
+os.environ.setdefault("OUTPUT_KEY_PREFIX", "prefix")  # used by metadata_generator handler
 os.environ.setdefault("INVALID_BUCKET", "invalid-bucket")
 os.environ.setdefault("LANDING_BUCKET", "landing-bucket")
 os.environ.setdefault("RETRY_FAILED_AFTER_RECREATE_METADATA", "false")
@@ -156,9 +153,7 @@ def test_metadata_handler_creates_db_and_tables_and_writes_s3(
     # s3 mapping rules + output writes
     s3 = MagicMock()
     s3.get_object.return_value = {
-        "Body": SimpleNamespace(
-            readlines=lambda: [json.dumps(mapping_rules).encode("utf-8")]
-        )
+        "Body": SimpleNamespace(readlines=lambda: [json.dumps(mapping_rules).encode("utf-8")])
     }
     get_s3.return_value = s3
 
@@ -290,18 +285,14 @@ def test_validation_handler_unwraps_sqs_message_and_processes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     s3_client = MagicMock()
-    s3_client.get_paginator.return_value = FakePaginator(
-        pages=[{"Contents": [{"Key": "metadata/table1.json"}]}]
-    )
+    s3_client.get_paginator.return_value = FakePaginator(pages=[{"Contents": [{"Key": "metadata/table1.json"}]}])
     monkeypatch.setattr(validation_mod, "client", s3_client)
 
     fv_instance = MagicMock()
     FileValidator_cls = MagicMock(return_value=fv_instance)
     monkeypatch.setattr(validation_mod, "FileValidator", FileValidator_cls)
 
-    event = _sqs_event_wrapping_s3(
-        "msg-1", "source-bucket", "raw/myschema/table1/file.parquet"
-    )
+    event = _sqs_event_wrapping_s3("msg-1", "source-bucket", "raw/myschema/table1/file.parquet")
 
     result = validation_mod.handler(event, SimpleNamespace())
 
@@ -314,9 +305,7 @@ def test_validation_handler_reports_partial_batch_failure_on_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     s3_client = MagicMock()
-    s3_client.get_paginator.return_value = FakePaginator(
-        pages=[{"Contents": [{"Key": "metadata/table1.json"}]}]
-    )
+    s3_client.get_paginator.return_value = FakePaginator(pages=[{"Contents": [{"Key": "metadata/table1.json"}]}])
     monkeypatch.setattr(validation_mod, "client", s3_client)
 
     # FileValidator.execute raises -> handler should report this messageId
@@ -326,9 +315,7 @@ def test_validation_handler_reports_partial_batch_failure_on_exception(
     FileValidator_cls = MagicMock(return_value=fv_instance)
     monkeypatch.setattr(validation_mod, "FileValidator", FileValidator_cls)
 
-    event = _sqs_event_wrapping_s3(
-        "msg-poison", "source-bucket", "raw/myschema/table1/bad.parquet"
-    )
+    event = _sqs_event_wrapping_s3("msg-poison", "source-bucket", "raw/myschema/table1/bad.parquet")
 
     result = validation_mod.handler(event, SimpleNamespace())
 

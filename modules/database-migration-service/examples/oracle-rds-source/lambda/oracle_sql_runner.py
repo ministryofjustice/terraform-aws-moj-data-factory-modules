@@ -34,18 +34,14 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             for sql in statements:
                 sql_stripped = sql.strip()
                 # Only strip trailing semicolons from plain SQL, not PL/SQL blocks
-                if not sql_stripped.upper().startswith(
-                    "BEGIN"
-                ) and not sql_stripped.upper().startswith("DECLARE"):
+                if not sql_stripped.upper().startswith("BEGIN") and not sql_stripped.upper().startswith("DECLARE"):
                     sql_stripped = sql_stripped.rstrip(";")
                 try:
                     with conn.cursor() as cursor:
                         cursor.execute(sql_stripped)
                         if cursor.description:
                             columns = [col[0] for col in cursor.description]
-                            rows = [
-                                dict(zip(columns, row)) for row in cursor.fetchmany(100)
-                            ]
+                            rows = [dict(zip(columns, row)) for row in cursor.fetchmany(100)]
                             results.append(
                                 {
                                     "sql": sql,

@@ -1,9 +1,10 @@
-from collections import defaultdict
+import ast
 import json
 import logging
 import os
 import re
 import sys
+from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
@@ -15,7 +16,6 @@ from mojap_metadata.converters.etl_manager_converter import EtlManagerConverter 
 from mojap_metadata.converters.glue_converter import GlueConverter  # type: ignore[import-untyped]
 from mojap_metadata.converters.sqlalchemy_converter import SQLAlchemyConverter  # type: ignore[import-untyped]
 from sqlalchemy import Engine, create_engine
-import ast
 
 patch_all()
 
@@ -28,9 +28,7 @@ dms_mapping_rules_key = os.environ.get("DMS_MAPPING_RULES_KEY", "")
 lambda_bucket_name = os.getenv("LAMBDA_BUCKET")
 metadata_bucket = os.environ["METADATA_BUCKET"]
 db_secret_arn = os.getenv("DB_SECRET_ARN")
-retry_failed_after_recreate_metadata = (
-    os.getenv("RETRY_FAILED_AFTER_RECREATE_METADATA", "true").lower() == "true"
-)
+retry_failed_after_recreate_metadata = os.getenv("RETRY_FAILED_AFTER_RECREATE_METADATA", "true").lower() == "true"
 use_glue_catalog = os.getenv("USE_GLUE_CATALOG", "true").lower() == "true"
 glue_catalog_arn = os.getenv("GLUE_CATALOG_ARN", "")
 os.environ["AWS_STS_REGIONAL_ENDPOINTS"] = "regional"
@@ -44,9 +42,7 @@ def _get_glue_client() -> Any:
     glue_role_arn = os.getenv("GLUE_CATALOG_ROLE_ARN")
     if glue_role_arn:
         sts_connection = boto3.client("sts")
-        acct_b = sts_connection.assume_role(
-            RoleArn=glue_role_arn, RoleSessionName="cross_acct_lambda"
-        )
+        acct_b = sts_connection.assume_role(RoleArn=glue_role_arn, RoleSessionName="cross_acct_lambda")
         glue_client_kwargs.update(
             {
                 "aws_access_key_id": acct_b["Credentials"]["AccessKeyId"],
@@ -168,12 +164,8 @@ class MetadataExtractor:
         if dms_mapping_rules_bucket:
             logger.info("Loading columns to exclude from %s", path_to_dms_mapping_rules)
             s3 = _get_s3()
-            response = s3.get_object(
-                Bucket=dms_mapping_rules_bucket, Key=dms_mapping_rules_key
-            )
-            self.dms_mapping_rules = json.loads(
-                b"".join(response["Body"].readlines()).decode("utf-8")
-            )
+            response = s3.get_object(Bucket=dms_mapping_rules_bucket, Key=dms_mapping_rules_key)
+            self.dms_mapping_rules = json.loads(b"".join(response["Body"].readlines()).decode("utf-8"))
         self.excluded_columns_by_object = defaultdict(set)
         for object_column in self.dms_mapping_rules.get("columns_to_exclude", []):
             self.excluded_columns_by_object[object_column["object_name"].upper()].add(
@@ -247,9 +239,7 @@ class MetadataExtractor:
             metadata.update_column(column)
         return metadata
 
-    def _process_exclusions(
-        self, metadata: Metadata, schema: str, table: str
-    ) -> Metadata:
+    def _process_exclusions(self, metadata: Metadata, schema: str, table: str) -> Metadata:
         """
         Remove relevant entries from column exclusion list from metadata
 
@@ -262,9 +252,7 @@ class MetadataExtractor:
         :rtype: Metadata
         """
         exclusion_key = ""
-        logger.info(
-            "Looking for excluded columns for keys %s.%s and %s", schema, table, table
-        )
+        logger.info("Looking for excluded columns for keys %s.%s and %s", schema, table, table)
         if f"{schema}.{table}".upper() in self.excluded_columns_by_object:
             exclusion_key = f"{schema}.{table}".upper()
         elif table.upper() in self.excluded_columns_by_object:
@@ -353,15 +341,10 @@ class MetadataExtractor:
         elif len(object_list) == 1:
             return self.schema_name, object_list[0]
         else:
-            raise ValueError(
-                f"Expected object to be of format `table` or `schema.table` but got {obj_str}"
-            )
+            raise ValueError(f"Expected object to be of format `table` or `schema.table` but got {obj_str}")
 
     def get_database_metadata(self, output_bucket: str) -> list[Metadata]:
-        tables = [
-            self.get_table_metadata(*self.get_schema_and_table_from_object(obj))
-            for obj in self.objects
-        ]
+        tables = [self.get_table_metadata(*self.get_schema_and_table_from_object(obj)) for obj in self.objects]
         self._write_database_objects(output_bucket)
         return tables
 
@@ -396,9 +379,7 @@ def handler(event: dict[str, Any], context: Any) -> None:
     engine = create_engine(db_string, connect_args=connect_args)
     s3 = _get_s3()
     response = s3.get_object(Bucket=dms_mapping_rules_bucket, Key=dms_mapping_rules_key)
-    dms_mapping_rules = json.loads(
-        b"".join(response["Body"].readlines()).decode("utf-8")
-    )
+    dms_mapping_rules = json.loads(b"".join(response["Body"].readlines()).decode("utf-8"))
 
     # REMOVE: Change how this gets populated
     # db_objects = [obj.lower() for obj in json.loads(os.getenv("DB_OBJECTS", "[]"))]
@@ -426,18 +407,14 @@ def handler(event: dict[str, Any], context: Any) -> None:
             if match:
                 catalogId = match.groups()
                 if len(catalogId) != 1:
-                    raise ValueError(
-                        f"Expected exactly one account ID in glue_catalog_arn, got {len(catalogId)}"
-                    )
+                    raise ValueError(f"Expected exactly one account ID in glue_catalog_arn, got {len(catalogId)}")
                 glue_kwargs["CatalogId"] = catalogId[0]
         try:
             glue.get_database(Name=db_identifier, **glue_kwargs)
             logger.info(f"Database {db_identifier} already exists in Glue Catalog")
         except glue.exceptions.EntityNotFoundException:
             # Create the database if it does not exist. Fails is it cannot be created
-            logger.info(
-                f"Database {db_identifier} does not exist in Glue Catalog. Creating it now"
-            )
+            logger.info(f"Database {db_identifier} does not exist in Glue Catalog. Creating it now")
             response = glue.create_database(
                 DatabaseInput={
                     "Name": db_identifier,
@@ -446,9 +423,7 @@ def handler(event: dict[str, Any], context: Any) -> None:
                 **glue_kwargs,
             )
     else:
-        logger.info(
-            f"Not contacting glue catalog, as db_identifier defined as {db_identifier}"
-        )
+        logger.info(f"Not contacting glue catalog, as db_identifier defined as {db_identifier}")
 
     metadata = MetadataExtractor(db_options, engine)
     db_metadata = metadata.get_database_metadata(metadata_bucket)
@@ -459,7 +434,8 @@ def handler(event: dict[str, Any], context: Any) -> None:
         gc.generate_from_meta(
             table,
             db_identifier,
-            f"s3://{raw_history_bucket}/{output_key_prefix}/{schema}/{table.name.upper() if engine_type == 'oracle' else table.name}",
+            f"s3://{raw_history_bucket}/{output_key_prefix}/{schema}/"
+            f"{table.name.upper() if engine_type == 'oracle' else table.name}",
         )
         for table in db_metadata
     ]
@@ -496,18 +472,14 @@ def handler(event: dict[str, Any], context: Any) -> None:
                 )
             except glue.exceptions.EntityNotFoundException:
                 try:
-                    logger.info(
-                        f"Table {table['TableInput']['Name']} does not exist. Creating it now"
-                    )
+                    logger.info(f"Table {table['TableInput']['Name']} does not exist. Creating it now")
                     response = glue.create_table(**table | glue_kwargs)
                     logger.debug(response)
                 except Exception as e:
                     logger.exception("Create table failed: %s", table)
                     raise e
     else:
-        logger.info(
-            f"Not contacting glue catalog, as use_glue_catalog is {use_glue_catalog}"
-        )
+        logger.info(f"Not contacting glue catalog, as use_glue_catalog is {use_glue_catalog}")
 
     # Output json metadata to S3
     for table in db_metadata:
@@ -537,9 +509,7 @@ def reprocess_failed_records() -> None:
         trace_id = xray_recorder.current_segment().trace_id
 
         # Get original object metadata (if exists)
-        original_metadata = s3.head_object(Bucket=invalid_bucket_name, Key=key).get(
-            "Metadata", {}
-        )
+        original_metadata = s3.head_object(Bucket=invalid_bucket_name, Key=key).get("Metadata", {})
 
         # Drop old x-amzn-trace-id if it exists in header
         original_metadata.pop("x-amzn-trace-id", None)

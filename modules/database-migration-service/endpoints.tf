@@ -13,6 +13,7 @@ locals {
 }
 
 resource "aws_dms_endpoint" "source" {
+  # checkov:skip=CKV_AWS_296: Encryption uses the AWS managed DMS key by design
   endpoint_id   = "${var.db}-source"
   endpoint_type = "source"
   engine_name   = var.dms_source.engine_name
@@ -35,17 +36,19 @@ resource "aws_dms_endpoint" "source" {
 resource "aws_dms_s3_endpoint" "s3_target" {
   # checkov:skip=CKV_AWS_298: Use AWS managed KMS key
 
-  endpoint_id                      = "${var.db}-target"
-  endpoint_type                    = "target"
-  bucket_name                      = aws_s3_bucket.landing.bucket
-  service_access_role_arn          = aws_iam_role.dms.arn
-  add_column_name                  = var.s3_target_config.add_column_name
-  canned_acl_for_objects           = "bucket-owner-full-control"
-  cdc_max_batch_interval           = var.s3_target_config.max_batch_interval
-  cdc_min_file_size                = var.s3_target_config.min_file_size
-  compression_type                 = "GZIP"
-  data_format                      = "parquet"
-  encoding_type                    = "rle-dictionary"
+  endpoint_id             = "${var.db}-target"
+  endpoint_type           = "target"
+  bucket_name             = aws_s3_bucket.landing.bucket
+  service_access_role_arn = aws_iam_role.dms.arn
+  add_column_name         = var.s3_target_config.add_column_name
+  canned_acl_for_objects  = "bucket-owner-full-control"
+  cdc_max_batch_interval  = var.s3_target_config.max_batch_interval
+  cdc_min_file_size       = var.s3_target_config.min_file_size
+  # tflint-ignore: aws_dms_s3_endpoint_invalid_compression_type # GZIP is a valid DMS S3 value; ruleset is stale
+  compression_type = "GZIP"
+  data_format      = "parquet"
+  encoding_type    = "rle-dictionary"
+  # tflint-ignore: aws_dms_s3_endpoint_invalid_encryption_mode # SSE_S3 is a valid DMS S3 value; ruleset is stale
   encryption_mode                  = "SSE_S3"
   include_op_for_full_load         = true
   parquet_timestamp_in_millisecond = true
