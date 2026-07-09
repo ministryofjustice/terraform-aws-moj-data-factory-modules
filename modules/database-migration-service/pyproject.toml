@@ -3,7 +3,7 @@ name = "terraform-dms-module"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "aws-xray-sdk>=2.15.0",
     "backports-tarfile>=1.2.0",
