@@ -77,10 +77,7 @@ locals {
       }
     ],
     [
-      for idx, obj in local.independent_objects[full_load_name] : {
-        rule-type   = "transformation"
-        rule-id     = (length(local.independent_objects[full_load_name]) * 3) + idx + 1
-        rule-name   = "rename-${lower(obj)}"
+        rule-id     = (length(local.independent_objects[full_load_name]) * 2) + length(local.independent_blobs[full_load_name]) + length(local.independent_columns_to_exclude[full_load_name]) + idx + 1
         rule-action = "rename"
         rule-target = "table"
         value       = replace(obj, "_MV", "")
