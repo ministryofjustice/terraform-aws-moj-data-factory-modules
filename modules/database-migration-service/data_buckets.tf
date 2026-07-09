@@ -178,6 +178,8 @@ resource "aws_s3_bucket" "invalid" {
   #checkov:skip=CKV2_AWS_61: no lifecycle rules
   #checkov:skip=CKV_AWS_145: not using kms here
   bucket_prefix = "${var.db}-invalid-"
+
+  tags = var.tags
 }
 
 resource "aws_s3_bucket_ownership_controls" "invalid" {
