@@ -14,17 +14,17 @@ module "bucket" {
   source  = "terraform-aws-modules/s3-bucket/aws"
   version = "~> 5.0"
 
-  bucket        = var.bucket_name
+  bucket        = local.bucket_name
   force_destroy = var.force_destroy
 
-# Attach policy from policies.tf, this policy is responsible for:
-  # - enforcing TLS
-  # - enforcing KMS encryption
-  # - allowing approved writers
-  # - allowing only clean objects to be read
+  attach_deny_incorrect_encryption_headers = false
+  attach_deny_incorrect_kms_key_sse = true
+  attach_deny_insecure_transport_policy = true
+  attach_deny_unencrypted_object_uploads = true
+  attach_deny_ssec_encrypted_object_uploads = false
 
-  attach_policy = true
-  policy        = data.aws_iam_policy_document.bucket_policy.json
+
+
 
 # Public access settings to block public access to the bucket and its objects.
   block_public_acls       = true

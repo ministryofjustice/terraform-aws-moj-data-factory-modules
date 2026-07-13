@@ -9,12 +9,12 @@ locals {
     {
       ManagedBy = "Terraform"
       Module    = "s3-raw-bucket"
+      Region    = data.aws_region.current.region
     }
   )
-# Constructs the ARN of the S3 bucket.
-  bucket_arn        = "arn:aws:s3:::${var.bucket_name}"
 
-# Constructs the ARN of all objects in the S3 bucket.
-  bucket_objects_arn = "arn:aws:s3:::${var.bucket_name}/*"
+  aws_account_id = "${data.aws_caller_identity.current.account_id}"
+
+  bucket_name = "${var.bucket_prefix}-${local.aws_account_id}"
 
 }
