@@ -94,9 +94,10 @@ GRANT SELECT ON <SCHEMA_NAME>.<TABLE_NAME> TO DMS;
 
 ```json
 {
-  "username": "<DMS_USER>"
-  "password": "<DMS_PASSWORD>"
-  "port": "1521"
+  "username": "<DMS_USER>",
+  "oracle_password": "<DMS_PASSWORD>",
+  "asm_password": "<ASM_PASSWORD>",
+  "port": 1521,
   "host": "<DB_HOST>"
 }
 ```

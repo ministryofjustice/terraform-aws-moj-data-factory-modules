@@ -32,7 +32,7 @@ variable "dms_replication_instance" {
 
   validation {
     condition     = contains(["3.5.2", "3.5.3", "3.5.4"], var.dms_replication_instance.engine_version)
-    error_message = "Valid values for var: test_variable are ('3.5.2', '3.5.3', '3.5.4')."
+    error_message = "Valid values for dms_replication_instance.engine_version are ('3.5.2', '3.5.3', '3.5.4')."
   }
   description = "Properties of the dms replication instance to be used in the migration"
 }
