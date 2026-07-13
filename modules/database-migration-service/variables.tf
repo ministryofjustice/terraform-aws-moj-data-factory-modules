@@ -18,14 +18,14 @@ variable "dms_replication_instance" {
     replication_instance_id      = string
     subnet_group_id              = optional(string)
     subnet_group_name            = optional(string)
-    subnet_ids                   = optional(list(string))
+    subnet_ids                   = list(string)
     allocated_storage            = number
     availability_zone            = string
     engine_version               = string
     kms_key_arn                  = string
     multi_az                     = bool
     replication_instance_class   = string
-    inbound_cidr                 = string
+    inbound_cidr                 = optional(string)
     apply_immediately            = optional(bool, false)
     preferred_maintenance_window = optional(string, "sun:10:30-sun:14:30")
   })
