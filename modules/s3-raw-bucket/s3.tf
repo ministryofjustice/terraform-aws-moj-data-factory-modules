@@ -11,8 +11,7 @@
 # downstream services are permitted to read them.
 
 module "bucket" {
-  source  = "git::https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git?ref=<0c0fb28347cc253088fe3966dca67420d39fbbe9>"
-  version = "~> 5.0"
+  source = "git::https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git?ref=0c0fb28347cc253088fe3966dca67420d39fbbe9"  
 
   bucket        = local.bucket_name
   force_destroy = var.force_destroy
