@@ -19,7 +19,6 @@ module "bucket" {
   attach_deny_incorrect_kms_key_sse         = true
   attach_deny_insecure_transport_policy     = true
   attach_deny_unencrypted_object_uploads    = true
-  attach_deny_ssec_encrypted_object_uploads = false
 
 
 
@@ -44,6 +43,7 @@ module "bucket" {
   server_side_encryption_configuration = {
     rule = {
       bucket_key_enabled = true
+      blocked_encryption_types = ["SSE-C"]
 
       apply_server_side_encryption_by_default = {
         sse_algorithm     = "aws:kms"
