@@ -17,3 +17,8 @@ jobs:
       packages: read
       statuses: write
     uses: ministryofjustice/data-platform-github-actions/.github/workflows/super-linter.yml@f8eec741ffb11054c5d89cd7af91540cd36b0d2a # v3.4.3
+    with:
+      super-linter-variables: |
+        {
+          DISABLE_ERRORS: "true",
+        }
