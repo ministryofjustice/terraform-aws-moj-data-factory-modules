@@ -1,13 +1,7 @@
 # This module uses the official terraform-aws-modules/s3-bucket module to create and configure an S3 bucket. 
-# The bucket is configured to be scanned by GuardDuty Malware Protection before downstream services are 
-# allowed to read the objects.
 
 # Documentation:
 # https://registry.terraform.io/modules/terraform-aws-modules/s3-bucket/aws/latest
-
-# This bucket is intended to receive data from a landing bucket.
-# Newly uploaded objects will be scanned by GuardDuty Malware Protection before
-# downstream services are permitted to read them.
 
 module "bucket" {
   source = "git::https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git?ref=0c0fb28347cc253088fe3966dca67420d39fbbe9"
@@ -17,11 +11,9 @@ module "bucket" {
 
   attach_deny_incorrect_encryption_headers  = false
   attach_deny_incorrect_kms_key_sse         = true
+  allowed_kms_key_arn                       = var.kms_key_arn
   attach_deny_insecure_transport_policy     = true
   attach_deny_unencrypted_object_uploads    = true
-
-
-
 
   # Public access settings to block public access to the bucket and its objects.
   block_public_acls       = true
