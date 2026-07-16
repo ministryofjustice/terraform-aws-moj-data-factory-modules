@@ -21,7 +21,7 @@ variable "deletion_window_in_days" {
 }
 
 variable "key_service_users" {
-  description = "A list of IAM ARNs that can use the key for encryption/decryption (e.g., Avature, Lambda, EC2 roles)"
+  description = "A list of IAM ARNs that can use the key for encryption/decryption (e.g., Lambda, EC2 roles)"
   type        = list(string)
   default     = []
 }
