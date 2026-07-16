@@ -4,15 +4,16 @@ A generic bucket for landing raw data and integration with external systems.
 
 ## Usage
 ```hcl
-module "data-factory-s3-bucket" {
+module "data_factory_s3_bucket" {
     source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/.."
 
     bucket_prefix = avature-landing
 
+    environment = "dev"
+
     tags = {
-        Environment = "dev"
-        Client = 'Avature'
-        ManagedBy   = "Terraform"
+        Project = 'Avature'
+        Owner   = "CorporateDataEngineering"
         }
 
     kms_key_arn = ".."

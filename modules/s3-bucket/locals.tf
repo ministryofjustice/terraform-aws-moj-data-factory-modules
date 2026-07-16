@@ -7,8 +7,8 @@ locals {
     var.tags,
     {
       ManagedBy = "Terraform"
-      Module    = "data-factory-s3-bucket"
       Region    = data.aws_region.current.region
+      Environment = var.environment
     }
   )
 }
