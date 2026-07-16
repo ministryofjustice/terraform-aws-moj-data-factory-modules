@@ -5,8 +5,9 @@ module "kms" {
   description             = var.description
   enable_key_rotation     = var.enable_key_rotation
   deletion_window_in_days = var.deletion_window_in_days
-  is_enabled              = var.is_enabled
-  multi_region            = var.multi_region
+
+  policy                = var.policy
+  enable_default_policy = true
 
   key_service_users  = var.key_service_users
   key_administrators = var.key_administrators

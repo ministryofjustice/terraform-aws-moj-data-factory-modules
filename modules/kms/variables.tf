@@ -4,13 +4,13 @@ variable "description" {
 }
 
 variable "enable_key_rotation" {
-  description = "Specifies whether key rotation is enabled. Defaults to true"
+  description = "Automatically rotates the key material annually. Recommended to keep true."
   type        = bool
   default     = true
 }
 
 variable "deletion_window_in_days" {
-  description = "The waiting period, specified in number of days. After the waiting period ends, AWS KMS deletes the KMS key. Must be between 7 and 30, inclusive"
+  description = "Days to wait before permanently deleting the key after a terraform destroy. Must be between 7 and 30."
   type        = number
   default     = 7
 
@@ -21,28 +21,24 @@ variable "deletion_window_in_days" {
 }
 
 variable "key_service_users" {
-  description = "A list of IAM ARNs that can use the key for encryption/decryption (e.g., Lambda, EC2 roles)"
+  description = "IAM roles for AWS services (e.g. EC2, Lambda) that need to create/manage KMS grants on behalf of AWS-integrated services. Grants kms:CreateGrant, kms:ListGrants, kms:RevokeGrant. Not required for cross-account IAM role access — use the IAM role's inline policy instead."
   type        = list(string)
   default     = []
 }
 
 variable "key_administrators" {
-  description = "A list of IAM ARNs that can administer the key (manage policy, rotation, etc.)"
+  description = "IAM roles that can manage the key lifecycle: rotate, disable, schedule deletion, update policy. These roles cannot encrypt or decrypt data — administration only."
   type        = list(string)
   default     = []
 }
 
-variable "is_enabled" {
-  description = "Specifies whether the key is enabled. Defaults to true"
-  type        = bool
-  default     = true
+variable "policy" {
+  description = "A valid policy JSON document to override the auto-generated key policy. If null, the policy is built from enable_default_policy, key_administrators, and key_service_users"
+  type        = string
+  default     = null
 }
 
-variable "multi_region" {
-  description = "Indicates whether the KMS key is a multi-Region key. Defaults to false"
-  type        = bool
-  default     = false
-}
+
 
 variable "aliases" {
   description = "A list of aliases to create for the KMS key"
