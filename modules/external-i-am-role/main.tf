@@ -1,6 +1,9 @@
 # Trust relationship that allows an account to assume this role. The account is passed in as a variable.
 # The external client does not receive permanent credentials for this role. 
 # Instead, a principal in their account calls STS AssumeRole and receives temporary credentials.
+
+# change to allow it to access multiple buckets, keys and glue tables.
+
 resource "aws_iam_role" "this" {
   name                 = var.role_name
   max_session_duration = var.max_session_duration
