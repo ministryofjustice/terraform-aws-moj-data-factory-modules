@@ -8,7 +8,7 @@ locals {
     {
       ManagedBy = "Terraform"
       Region    = data.aws_region.current.region
-      Account  = local.aws_account_id
+      Account   = local.aws_account_id
     }
   )
 }
