@@ -12,6 +12,7 @@ variable "kms_key_arn" {
 variable "enable_malware_protection" {
     description = "Whether to enable GuardDuty malware protection for the bucket."
     type        = bool
+    default = false
 }
 
 # Control whether Terraform can delete a non-empty bucket. Usually false outside dev.

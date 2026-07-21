@@ -55,6 +55,28 @@ module "guarddduty_scan_role" {
   source = "git::https://github.com/terraform-aws-modules/terraform-aws-iam.git//modules/iam-role?ref=5b962b1163790398605f2b17447cf5b6cc512237"
   count = var.enable_malware_protection ? 1 : 0
 
+  name            = "${module.bucket.bucket_name}-guardduty-malware"
+  use_name_prefix = false
+
+  description = "Allows GuardDuty to scan objects in ${module.bucket.bucket_name} for malware and tag them."
+
+  create_inline_policy = true
+
+  trust_policy_permissions = {
+    AllowGuardDutyMalwareProtection = {
+      actions = ["sts:AssumeRole"]
+
+      principals = [{
+        type = "Service"
+
+        identifiers = [
+          "malware-protection-plan.guardduty.amazonaws.com",
+        ]
+      }]
+    }
+  }
+
+
 }
 
 # Guard Duty S3 Malware Protection Plan, see: https://docs.aws.amazon.com/guardduty/latest/ug/malware-protection-s3.html
