@@ -9,8 +9,8 @@ variable "kms_key_arn" {
   type        = string
 }
 
-variable "landing_bucket" {
-    description = "Whether the bucket is a landing bucket for external data."
+variable "enable_malware_protection" {
+    description = "Whether to enable GuardDuty malware protection for the bucket."
     type        = bool
 }
 

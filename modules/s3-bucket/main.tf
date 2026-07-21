@@ -53,13 +53,13 @@ module "bucket" {
 # Role that GuardDuty needs enable tagging and scanning, see: https://docs.aws.amazon.com/guardduty/latest/ug/malware-protection-s3-iam-policy-prerequisite.html
 module "guarddduty_scan_role" {
   source = "git::https://github.com/terraform-aws-modules/terraform-aws-iam.git//modules/iam-role?ref=5b962b1163790398605f2b17447cf5b6cc512237"
-  count = var.landing_bucket ? 1 : 0
+  count = var.enable_malware_protection ? 1 : 0
 
 }
 
-
+# Guard Duty S3 Malware Protection Plan, see: https://docs.aws.amazon.com/guardduty/latest/ug/malware-protection-s3.html
 resource "aws_guardduty_malware_protection_plan" "malware_protection_plan" {
-  count = var.landing_bucket ? 1 : 0
+  count = var.enable_malware_protection ? 1 : 0
 
   role = module.guarddduty_scan_role[0].arn
 
