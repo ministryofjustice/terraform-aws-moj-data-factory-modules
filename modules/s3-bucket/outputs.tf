@@ -1,4 +1,3 @@
-
 # Returns the name (ID) of the S3 bucket created by this module.
 output "bucket_name" {
   description = "Name of the S3 bucket."
