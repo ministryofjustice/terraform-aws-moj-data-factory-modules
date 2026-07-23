@@ -20,6 +20,8 @@
 */
 
 resource "aws_iam_role" "lakeformation_s3_access_role" {
+  count = var.storage.register_as_lakeformation_location ? 1 : 0
+
   name = "${var.database_name}-s3-access"
   tags = var.tags
   assume_role_policy = jsonencode({
@@ -37,8 +39,10 @@ resource "aws_iam_role" "lakeformation_s3_access_role" {
 }
 
 resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
+  count = var.storage.register_as_lakeformation_location ? 1 : 0
+
   name = "lakeformation-s3-access-policy"
-  role = aws_iam_role.lakeformation_s3_access_role.id
+  role = aws_iam_role.lakeformation_s3_access_role[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -80,14 +84,16 @@ resource "aws_iam_role_policy" "lakeformation_s3_access_policy" {
 }
 
 resource "aws_lakeformation_resource" "s3_location" {
-  role_arn   = aws_iam_role.lakeformation_s3_access_role.arn
+  count = var.storage.register_as_lakeformation_location ? 1 : 0
+
+  role_arn   = aws_iam_role.lakeformation_s3_access_role[0].arn
   arn        = "arn:aws:s3:::${var.storage.bucket_name}/${trim(var.storage.prefix, "/")}"
   depends_on = [aws_iam_role_policy.lakeformation_s3_access_policy]
 }
 
 resource "aws_glue_catalog_database" "data_factory_database" {
   name         = var.database_name
-  location_uri = "s3://${var.storage.bucket_name}/${var.storage.prefix}"
+  location_uri = var.storage.register_as_lakeformation_location ? "s3://${var.storage.bucket_name}/${trim(var.storage.prefix, "/")}" : null
   description  = "Glue catalog database for ${var.database_name}"
   tags = merge(
     var.tags,

@@ -11,9 +11,10 @@ variable "database_name" {
 variable "storage" {
   description = "S3 location backing the Glue database (bucket name, key prefix, and KMS key ARN)."
   type = object({
-    bucket_name = string
-    prefix      = string
-    kms_key_arn = string
+    bucket_name                        = string
+    prefix                             = string
+    kms_key_arn                        = string
+    register_as_lakeformation_location = optional(bool, true)
   })
 
   validation {
