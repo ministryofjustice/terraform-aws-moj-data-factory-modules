@@ -3,20 +3,16 @@ variable "bucket_prefix" {
   type        = string
 }
 
-variable "environment" {
-  description = "Environment for the S3 bucket to create."
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "test", "prod"], var.environment)
-    error_message = "Environment must be one of 'dev', 'test', or 'prod'."
-  }
-}
-
 # Customer-managed KMS key used to encrypt objects in the bucket.
 variable "kms_key_arn" {
   description = "ARN of the customer-managed KMS key used for S3 encryption."
   type        = string
+}
+
+variable "enable_malware_protection" {
+  description = "Whether to enable GuardDuty malware protection for the bucket."
+  type        = bool
+  default     = false
 }
 
 # Control whether Terraform can delete a non-empty bucket. Usually false outside dev.
@@ -38,8 +34,8 @@ variable "lifecycle_rules" {
 # Example:
 #   {
 #     Environment = "dev"
-#     Application = "raw-data"
-#     Owner       = "corp-data-eng"
+#     Application = "corporate"
+#     Owner       = "data-engineering"
 #   }
 variable "tags" {
   description = "Tags to apply to created resources."
