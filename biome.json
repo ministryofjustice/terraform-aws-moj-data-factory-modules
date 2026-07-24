@@ -1,0 +1,13 @@
+{
+  "files": {
+    "includes": ["**", "!.devcontainer/devcontainer-lock.json"]
+  },
+  "json": {
+    "formatter": {
+      "indentStyle": "space"
+    },
+    "parser": {
+      "allowTrailingCommas": true
+    }
+  }
+}
