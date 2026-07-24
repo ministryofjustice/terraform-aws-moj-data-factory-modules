@@ -20,7 +20,7 @@ repos:
       - id: zizmor
 
   - repo: https://github.com/terraform-docs/terraform-docs
-    rev: b8f73e22eae2560d55ec5e9da62251c068fa9ccb  # frozen: v0.23.0
+    rev: 9d4455198941806aa02ec14369de030cda2c2b59  # frozen: v0.24.0
     hooks:
       - id: terraform-docs-system
         args: ["."]
