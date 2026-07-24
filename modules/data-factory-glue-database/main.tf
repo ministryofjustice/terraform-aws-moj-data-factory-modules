@@ -1,11 +1,11 @@
 /**
-  * # Lake Formation Database
-  * This module creates an S3 location registered in AWS Lake Formation and an AWS Glue Catalog Database backed by that S3 bucket.
+  * # Data Factory Glue Database
+  * This module creates an Glue Database. It also conditionally creates a Lake Formation resource for the S3 location.
   *
   * ## Usage
   * ```hcl
-  * module "lakeformation_database" {
-  *   source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/lakeformation-database?ref=<git-sha>"
+  * module "data_factory_glue_database" {
+  *   source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/data-factory-glue-database?ref=<git-sha>"
   *
   *   database_name = "example"
   *
