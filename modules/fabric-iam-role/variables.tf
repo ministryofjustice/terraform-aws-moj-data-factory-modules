@@ -27,8 +27,7 @@ variable "audience" {
 
 variable "object_id" {
   type        = string
-  description = "Microsoft Entra object ID allowed to assume the IAM role."
-
+  description = "Enterprise Application (service principal) Object ID of the Microsoft Entra identity allowed to assume the IAM role."
   validation {
     condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", trimspace(var.object_id)))
     error_message = "object_id must be a non-empty GUID."

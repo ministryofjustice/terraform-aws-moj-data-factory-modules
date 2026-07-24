@@ -35,7 +35,7 @@ resource "aws_iam_role" "this" {
 data "aws_iam_policy_document" "bucket_access" {
   statement {
     effect    = "Allow"
-    actions   = ["s3:ListBucket"]
+    actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
     resources = [var.bucket_arn]
   }
 

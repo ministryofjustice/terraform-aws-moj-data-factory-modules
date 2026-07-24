@@ -50,11 +50,12 @@ output "iam_role_arn" {
 
 ## Permissions Granted
 
-The role grants the following S3 permissions:
+The role grants the minimum S3 permissions required for Fabric/Power BI S3 shortcuts:
 
-- `s3:ListBucket` - List objects in the bucket
-- `s3:GetObject` - Read/download objects from the bucket
-- `s3:GetObjectAttributes` - Read object metadata/attributes (required by some S3 clients)
+- `s3:ListBucket` - List objects in the bucket (bucket-level)
+- `s3:GetBucketLocation` - Resolve the bucket's region (bucket-level)
+- `s3:GetObject` - Read/download objects from the bucket (object-level)
+- `s3:GetObjectAttributes` - Read object metadata/attributes (object-level)
 
 These permissions allow the Entra service principal to list and retrieve objects from the specified S3 bucket without write access.
 
@@ -77,7 +78,7 @@ These permissions allow the Entra service principal to list and retrieve objects
 
 - OIDC provider deployed (use the [fabric-oidc-provider](../fabric-oidc-provider/README.md) module)
 - Valid Microsoft Entra tenant ID
-- Entra service principal object ID
+- Entra Enterprise Application (service principal) Object ID
 - Target S3 bucket ARN
 
 ## Related Modules
@@ -120,7 +121,7 @@ No modules.
 | <a name="input_additional_tags"></a> [additional\_tags](#input\_additional\_tags) | Additional tags to apply to resources created by this module. | `map(string)` | `{}` | no |
 | <a name="input_audience"></a> [audience](#input\_audience) | Expected OIDC audience (`aud`) claim. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the S3 bucket this role can read. | `string` | n/a | yes |
-| <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Microsoft Entra object ID allowed to assume the IAM role. | `string` | n/a | yes |
+| <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Enterprise Application (service principal) Object ID of the Microsoft Entra identity allowed to assume the IAM role. This is the Object ID found under Enterprise applications > <app> > Overview, NOT the App registration Object ID. | `string` | n/a | yes |
 | <a name="input_oidc_provider_arn"></a> [oidc\_provider\_arn](#input\_oidc\_provider\_arn) | ARN of the IAM OIDC provider trusted by this role. | `string` | n/a | yes |
 | <a name="input_oidc_provider_condition_key_prefix"></a> [oidc\_provider\_condition\_key\_prefix](#input\_oidc\_provider\_condition\_key\_prefix) | Condition key prefix from the fabric-oidc-provider module output (e.g. 'sts.windows.net/{tenant\_id}/:'). | `string` | n/a | yes |
 | <a name="input_role_name"></a> [role\_name](#input\_role\_name) | IAM role name for Fabric web identity access. | `string` | n/a | yes |
