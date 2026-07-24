@@ -15,19 +15,19 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
-    rev: a4727cbbcd26d7098e96b9cb738169b59711ae51  # frozen: v1.24.1
+    rev: 64a97fb7fa63188393d3215c6e312f5f9c6d0f78  # frozen: v1.27.0
     hooks:
       - id: zizmor
 
   - repo: https://github.com/terraform-docs/terraform-docs
-    rev: b8f73e22eae2560d55ec5e9da62251c068fa9ccb  # frozen: v0.23.0
+    rev: 9d4455198941806aa02ec14369de030cda2c2b59  # frozen: v0.24.0
     hooks:
       - id: terraform-docs-system
         args: ["."]
         pass_filenames: false
 
   - repo: https://github.com/streetsidesoftware/cspell-cli
-    rev: 36064fa396bcbcd7df169b9f932536b7e6d2666c  # frozen: v8.4.0
+    rev: ea11f9efc0bec520073405bc30552da887ba71bc  # frozen: v10.0.1
     hooks:
       - id: cspell # Spell check changed files
         args:
