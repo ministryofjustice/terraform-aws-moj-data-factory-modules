@@ -41,41 +41,7 @@ variable "versioning" {
 variable "lifecycle_rules" {
   description = "Optional lifecycle rules for the bucket."
   type        = any
-  default = [
-    {
-      id      = "main"
-      enabled = "Enabled"
-      prefix  = ""
-      tags = {
-        rule      = "log"
-        autoclean = "true"
-      }
-      transition = [
-        {
-          days          = 90
-          storage_class = "STANDARD_IA"
-          }, {
-          days          = 365
-          storage_class = "GLACIER"
-        }
-      ]
-      expiration = {
-        days = 730
-      }
-      noncurrent_version_transition = [
-        {
-          days          = 90
-          storage_class = "STANDARD_IA"
-          }, {
-          days          = 365
-          storage_class = "GLACIER"
-        }
-      ]
-      noncurrent_version_expiration = {
-        days = 730
-      }
-    }
-  ]
+  default = []
 }
 
 variable "policy" {
