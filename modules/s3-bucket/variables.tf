@@ -9,6 +9,12 @@ variable "kms_key_arn" {
   type        = string
 }
 
+variable "log_bucket_name" {
+  description = "Name of the central log bucket."
+  type        = string
+  default     = null
+}
+
 variable "enable_malware_protection" {
   description = "Whether to enable GuardDuty malware protection for the bucket."
   type        = bool
@@ -22,12 +28,60 @@ variable "force_destroy" {
   default     = false
 }
 
+variable "versioning" {
+  description = "Whether to enable versioning for the bucket."
+  type        = map(string)
+  default = {
+    enabled = true
+  }
+}
+
 # Optional lifecycle rules for the bucket, passed directly to the S3 bucket module.
 # See https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket#lifecycle_rule for details.
 variable "lifecycle_rules" {
   description = "Optional lifecycle rules for the bucket."
   type        = any
-  default     = []
+  default = [
+    {
+      id      = "main"
+      enabled = "Enabled"
+      prefix  = ""
+      tags = {
+        rule      = "log"
+        autoclean = "true"
+      }
+      transition = [
+        {
+          days          = 90
+          storage_class = "STANDARD_IA"
+          }, {
+          days          = 365
+          storage_class = "GLACIER"
+        }
+      ]
+      expiration = {
+        days = 730
+      }
+      noncurrent_version_transition = [
+        {
+          days          = 90
+          storage_class = "STANDARD_IA"
+          }, {
+          days          = 365
+          storage_class = "GLACIER"
+        }
+      ]
+      noncurrent_version_expiration = {
+        days = 730
+      }
+    }
+  ]
+}
+
+variable "policy" {
+  description = "Additional bucket policy JSON to merge with the module-managed bucket policy."
+  type        = string
+  default     = null
 }
 
 # Optional tags to apply to created resources. These are merged with the standard tags applied by the module.

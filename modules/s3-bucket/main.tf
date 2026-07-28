@@ -6,14 +6,18 @@
 module "bucket" {
   source = "git::https://github.com/terraform-aws-modules/terraform-aws-s3-bucket.git?ref=0c0fb28347cc253088fe3966dca67420d39fbbe9"
 
-  bucket        = local.bucket_name
-  force_destroy = var.force_destroy
+  bucket           = local.bucket_name
+  bucket_namespace = "account-regional"
+  force_destroy    = var.force_destroy
 
   attach_deny_incorrect_encryption_headers = false
   attach_deny_incorrect_kms_key_sse        = true
   allowed_kms_key_arn                      = var.kms_key_arn
   attach_deny_insecure_transport_policy    = true
   attach_deny_unencrypted_object_uploads   = true
+  attach_require_latest_tls_policy         = true
+  attach_policy                            = var.policy != null
+  policy                                   = var.policy
 
   # Public access settings to block public access to the bucket and its objects.
   block_public_acls       = true
@@ -27,9 +31,7 @@ module "bucket" {
   object_ownership         = "BucketOwnerEnforced"
 
   # Enable versioning to keep track of object versions and allow recovery from accidental deletions or overwrites.
-  versioning = {
-    enabled = true
-  }
+  versioning = var.versioning
 
   # Every object in the bucket will be encrypted using the customer-managed KMS key provided by the user.
   server_side_encryption_configuration = {
@@ -43,6 +45,19 @@ module "bucket" {
       }
     }
   }
+
+  # Enable logging to the central log bucket only when a log bucket name is provided.
+  # NOTE: Requires the log bucket to have been created via the logging-bucket module first.
+  logging = jsondecode(var.log_bucket_name != null ? jsonencode({
+    target_bucket = var.log_bucket_name
+    target_prefix = "${local.bucket_name}/"
+
+    target_object_key_format = {
+      partitioned_prefix = {
+        partition_date_source = "DeliveryTime"
+      }
+    }
+  }) : "{}")
 
   # Optional lifecycle rules for the bucket, passed directly to the S3 bucket module.
   lifecycle_rule = var.lifecycle_rules
@@ -72,7 +87,7 @@ module "guardduty_scan_role" {
       ]
 
       resources = [
-        "arn:aws:events:${data.aws_region.current.region}:${local.aws_account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*",
+        "arn:aws:events:${local.region}:${local.account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*",
       ]
 
       condition = [{
@@ -89,7 +104,7 @@ module "guardduty_scan_role" {
       ]
 
       resources = [
-        "arn:aws:events:${data.aws_region.current.region}:${local.aws_account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*",
+        "arn:aws:events:${local.region}:${local.account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*",
       ]
     }
 
@@ -161,7 +176,7 @@ module "guardduty_scan_role" {
       condition = [{
         test     = "StringLike"
         variable = "kms:ViaService"
-        values   = ["s3.${data.aws_region.current.region}.amazonaws.com"]
+        values   = ["s3.${local.region}.amazonaws.com"]
       }]
     }
   }

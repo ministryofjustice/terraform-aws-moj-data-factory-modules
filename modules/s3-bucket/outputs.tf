@@ -4,6 +4,14 @@ output "bucket" {
   value       = module.bucket
 }
 
+output "bucket_name" {
+  value = module.bucket.s3_bucket_id
+}
+
+output "bucket_arn" {
+  value = module.bucket.s3_bucket_arn
+}
+
 output "guardduty_scan_role_name" {
   description = "Name of the IAM role used by GuardDuty Malware Protection, if enabled."
   value       = try(module.guardduty_scan_role[0].name, null)

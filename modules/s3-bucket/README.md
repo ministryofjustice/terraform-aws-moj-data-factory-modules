@@ -54,7 +54,7 @@ module "data_factory_s3_bucket" {
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 6.0, < 7.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.56.0 |
 
 ## Modules
 
@@ -79,15 +79,19 @@ module "data_factory_s3_bucket" {
 | <a name="input_enable_malware_protection"></a> [enable\_malware\_protection](#input\_enable\_malware\_protection) | Whether to enable GuardDuty malware protection for the bucket. | `bool` | `false` | no |
 | <a name="input_force_destroy"></a> [force\_destroy](#input\_force\_destroy) | Whether Terraform can delete a non-empty bucket. Usually false outside dev. | `bool` | `false` | no |
 | <a name="input_kms_key_arn"></a> [kms\_key\_arn](#input\_kms\_key\_arn) | ARN of the customer-managed KMS key used for S3 encryption. | `string` | n/a | yes |
-| <a name="input_lifecycle_rules"></a> [lifecycle\_rules](#input\_lifecycle\_rules) | Optional lifecycle rules for the bucket. | `any` | `[]` | no |
+| <a name="input_lifecycle_rules"></a> [lifecycle\_rules](#input\_lifecycle\_rules) | Optional lifecycle rules for the bucket. | `any` | <pre>[<br/>  {<br/>    "enabled": "Enabled",<br/>    "expiration": {<br/>      "days": 730<br/>    },<br/>    "id": "main",<br/>    "noncurrent_version_expiration": {<br/>      "days": 730<br/>    },<br/>    "noncurrent_version_transition": [<br/>      {<br/>        "days": 90,<br/>        "storage_class": "STANDARD_IA"<br/>      },<br/>      {<br/>        "days": 365,<br/>        "storage_class": "GLACIER"<br/>      }<br/>    ],<br/>    "prefix": "",<br/>    "tags": {<br/>      "autoclean": "true",<br/>      "rule": "log"<br/>    },<br/>    "transition": [<br/>      {<br/>        "days": 90,<br/>        "storage_class": "STANDARD_IA"<br/>      },<br/>      {<br/>        "days": 365,<br/>        "storage_class": "GLACIER"<br/>      }<br/>    ]<br/>  }<br/>]</pre> | no |
+| <a name="input_log_bucket_name"></a> [log\_bucket\_name](#input\_log\_bucket\_name) | Name of the central log bucket. | `string` | `null` | no |
+| <a name="input_policy"></a> [policy](#input\_policy) | Additional bucket policy JSON to merge with the module-managed bucket policy. | `string` | `null` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags to apply to created resources. | `map(string)` | `{}` | no |
+| <a name="input_versioning"></a> [versioning](#input\_versioning) | Whether to enable versioning for the bucket. | `map(string)` | <pre>{<br/>  "enabled": true<br/>}</pre> | no |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
-| <a name="output_bucket_arn"></a> [bucket\_arn](#output\_bucket\_arn) | ARN of the S3 bucket. |
-| <a name="output_bucket_name"></a> [bucket\_name](#output\_bucket\_name) | Name of the S3 bucket. |
+| <a name="output_bucket"></a> [bucket](#output\_bucket) | The S3 bucket created by this module. |
+| <a name="output_bucket_arn"></a> [bucket\_arn](#output\_bucket\_arn) | n/a |
+| <a name="output_bucket_name"></a> [bucket\_name](#output\_bucket\_name) | n/a |
 | <a name="output_guardduty_malware_protection_plan_id"></a> [guardduty\_malware\_protection\_plan\_id](#output\_guardduty\_malware\_protection\_plan\_id) | ID of the GuardDuty Malware Protection plan, if enabled. |
 | <a name="output_guardduty_scan_role_arn"></a> [guardduty\_scan\_role\_arn](#output\_guardduty\_scan\_role\_arn) | ARN of the IAM role used by GuardDuty Malware Protection, if enabled. |
 | <a name="output_guardduty_scan_role_name"></a> [guardduty\_scan\_role\_name](#output\_guardduty\_scan\_role\_name) | Name of the IAM role used by GuardDuty Malware Protection, if enabled. |
