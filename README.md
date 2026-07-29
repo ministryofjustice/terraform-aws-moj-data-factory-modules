@@ -28,6 +28,7 @@ As the repository grows, each module should include clear inputs, outputs, usage
 | Module | Description |
 |--------|-------------|
 | [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including the trust policy and customer-managed IAM policies created from supplied policy documents and attached to the role. |
+| [quarantine-bucket](modules/quarantine-bucket/README.md) | Provisions a secure, isolated S3 bucket for storing items that fail a malware/virus scan, with a deny-by-default bucket policy, dedicated KMS encryption, Object Lock, lifecycle expiry, and optional SNS alerting. |
 <!-- markdownlint-enable -->
 <!-- prettier-ignore-end -->
 
