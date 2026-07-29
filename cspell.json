@@ -12,7 +12,11 @@
     "mwaa",
     "openssf",
     "preprod",
+    "zizmor",
+    "powerbi",
+    "tfvars",
+    "tfstate",
     "serviceaccount",
-    "zizmor"
+    "color"
   ]
 }
