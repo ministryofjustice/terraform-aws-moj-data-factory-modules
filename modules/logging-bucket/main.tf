@@ -23,4 +23,37 @@ module "log_bucket" {
   access_log_delivery_policy_source_buckets  = ["arn:aws:s3:::*-${local.account_id}-${local.region}-an"]
 
   tags = local.tags
+
+  lifecycle_rule = [
+    {
+      id      = "access-log-retention"
+      enabled = true
+
+      transition = [
+        {
+          days          = 90
+          storage_class = "STANDARD_IA"
+        },
+        {
+          days          = 365
+          storage_class = "GLACIER"
+        }
+      ]
+
+      noncurrent_version_transition = [
+        {
+          days          = 45
+          storage_class = "STANDARD_IA"
+        },
+        {
+          days          = 180
+          storage_class = "GLACIER"
+        }
+      ]
+
+      noncurrent_version_expiration = {
+        days = 365
+      }
+    }
+  ]
 }
