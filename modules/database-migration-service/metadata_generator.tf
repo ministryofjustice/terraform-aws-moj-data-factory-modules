@@ -69,6 +69,10 @@ locals {
   mapping_rule_buckets = toset(concat(
     [var.dms_mapping_rules.bucket],
   [for _, job in var.independent_full_loads : job.path.bucket]))
+
+  # Attach the Oracle Instant Client layer (thick mode) only when an ARN is supplied.
+  oracle_client_layers = var.oracle_client_layer_arn != null ? [var.oracle_client_layer_arn] : []
+  oracle_client_env    = var.oracle_client_layer_arn != null ? { ORACLE_CLIENT_LIB_DIR = var.oracle_client_lib_dir } : {}
 }
 
 data "aws_iam_policy_document" "metadata_generator_lambda_function" {
@@ -218,6 +222,8 @@ module "metadata_generator" {
   s3_object_storage_class = "STANDARD"
   s3_prefix               = "metadata-generator/"
 
+  layers = local.oracle_client_layers
+
   # Lambda function will be attached to the VPC to access the source database
   vpc_security_group_ids = [aws_security_group.metadata_generator_lambda_function.id]
   vpc_subnet_ids         = data.aws_subnets.subnet_ids_vpc_subnets.ids
@@ -227,7 +233,7 @@ module "metadata_generator" {
   attach_policy_json = true
   policy_json        = data.aws_iam_policy_document.metadata_generator_lambda_function.json
 
-  environment_variables = {
+  environment_variables = merge(local.oracle_client_env, {
     ENVIRONMENT                          = var.environment
     DB_SECRET_ARN                        = var.dms_source.secrets_manager_arn
     METADATA_BUCKET                      = aws_s3_bucket.validation_metadata.bucket
@@ -244,7 +250,7 @@ module "metadata_generator" {
     DMS_MAPPING_RULES_BUCKET             = var.dms_mapping_rules.bucket
     DMS_MAPPING_RULES_KEY                = var.dms_mapping_rules.key
     RETRY_FAILED_AFTER_RECREATE_METADATA = var.retry_failed_after_recreate_metadata
-  }
+  })
 
   source_path = [{
     path             = "${path.module}/lambda_functions/metadata_generator/main.py"
@@ -274,6 +280,8 @@ module "independent_metadata_generator" {
   s3_prefix               = "metadata-generator/${each.value.full_load_name}/"
   hash_extra              = each.value.full_load_name
 
+  layers = local.oracle_client_layers
+
   # Lambda function will be attached to the VPC to access the source database
   vpc_security_group_ids = [aws_security_group.metadata_generator_lambda_function.id]
   vpc_subnet_ids         = data.aws_subnets.subnet_ids_vpc_subnets.ids
@@ -283,7 +291,7 @@ module "independent_metadata_generator" {
   create_role = false
   lambda_role = module.metadata_generator.lambda_role_arn
 
-  environment_variables = {
+  environment_variables = merge(local.oracle_client_env, {
     ENVIRONMENT                          = var.environment
     DB_SECRET_ARN                        = var.dms_source.secrets_manager_arn
     METADATA_BUCKET                      = aws_s3_bucket.validation_metadata.bucket
@@ -300,7 +308,7 @@ module "independent_metadata_generator" {
     DMS_MAPPING_RULES_BUCKET             = each.value.path.bucket
     DMS_MAPPING_RULES_KEY                = each.value.path.key
     RETRY_FAILED_AFTER_RECREATE_METADATA = var.retry_failed_after_recreate_metadata
-  }
+  })
 
   source_path = [{
     path             = "${path.module}/lambda_functions/metadata_generator/main.py"

@@ -192,6 +192,22 @@ def test_metadata_handler_creates_db_and_tables_and_writes_s3(
     reprocess_failed_records.assert_called_once()
 
 
+def test_oracle_thick_mode_init_called_when_lib_dir_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENGINE", "oracle")
+    monkeypatch.setenv("ORACLE_CLIENT_LIB_DIR", "/opt/oracle/instantclient")
+    with patch("oracledb.init_oracle_client") as init_oracle_client:
+        importlib.reload(metadata_mod)
+    init_oracle_client.assert_called_once_with(lib_dir="/opt/oracle/instantclient")
+
+
+def test_oracle_thick_mode_not_initialised_without_lib_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENGINE", "oracle")
+    monkeypatch.delenv("ORACLE_CLIENT_LIB_DIR", raising=False)
+    with patch("oracledb.init_oracle_client") as init_oracle_client:
+        importlib.reload(metadata_mod)
+    init_oracle_client.assert_not_called()
+
+
 # =====================================================================
 # VALIDATION tests
 # =====================================================================

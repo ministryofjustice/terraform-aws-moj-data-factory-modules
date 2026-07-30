@@ -78,6 +78,11 @@ if _engine_type == "oracle":
     oracledb.version = "8.3.0"  # type: ignore[assignment]
     sys.modules["cx_Oracle"] = oracledb
 
+    # Thick mode is required for Oracle Native Network Encryption; thin mode cannot negotiate it.
+    _oracle_client_lib_dir = os.getenv("ORACLE_CLIENT_LIB_DIR")
+    if _oracle_client_lib_dir:
+        oracledb.init_oracle_client(lib_dir=_oracle_client_lib_dir)
+
 # Oracle exposes the source commit position as SCN (System Change Number);
 # Postgres (and other engines) use a generic STREAM_POSITION name. The metadata
 # column name must match what the DMS task transformation rule adds.

@@ -136,6 +136,23 @@ variable "retry_failed_after_recreate_metadata" {
   description = "Whether to retry validation of failures after regenerating metadata"
 }
 
+variable "oracle_client_layer_arn" {
+  type        = string
+  default     = null
+  description = <<EOF
+    ARN of a Lambda layer providing the Oracle Instant Client libraries. When set, the metadata generator
+    Lambda runs python-oracledb in thick mode (required for Oracle Native Network Encryption). The layer must
+    expose the client libraries under the path given by oracle_client_lib_dir. When null, oracledb runs in thin
+    mode (no Native Network Encryption support). Only relevant when dms_source.engine_name is 'oracle'.
+  EOF
+}
+
+variable "oracle_client_lib_dir" {
+  type        = string
+  default     = "/opt/oracle/instantclient"
+  description = "Directory inside the Lambda runtime where the Oracle Instant Client libraries are mounted by oracle_client_layer_arn. Ignored when oracle_client_layer_arn is null."
+}
+
 variable "write_metadata_to_glue_catalog" {
   type        = bool
   default     = true
