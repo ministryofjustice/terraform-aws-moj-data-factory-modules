@@ -1,0 +1,4 @@
+[tool.black]
+# Match the line length that super-linter enforces for ruff and flake8 (120)
+# so that black and ruff format agree and don't produce conflicting results.
+line-length = 120

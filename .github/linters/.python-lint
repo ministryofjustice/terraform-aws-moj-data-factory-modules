@@ -1,0 +1,30 @@
+[MASTER]
+
+# Use multiple processes to speed up Pylint.
+jobs=0
+
+[FORMAT]
+
+# Match the line length that super-linter enforces for ruff and flake8.
+max-line-length=120
+
+[MESSAGES CONTROL]
+
+# Ignoring import errors is desired as super-linter does not install
+# project dependencies as it runs.
+#
+# Convention (C) and refactor (R) messages are advisory style/design
+# suggestions. They are relaxed here for the imported Lambda and example
+# code that this repository vendors. The warnings listed below are
+# disabled because they are noisy for AWS Lambda handlers (fixed event and
+# context signatures), logging call styles, and pytest fixtures.
+disable=import-error,
+        C,
+        R,
+        logging-fstring-interpolation,
+        redefined-outer-name,
+        broad-exception-caught,
+        unused-argument,
+        protected-access,
+        attribute-defined-outside-init,
+        fixme

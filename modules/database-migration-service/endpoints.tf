@@ -1,0 +1,62 @@
+# DMS Source Endpoint
+locals {
+  # Sensible default ECA for Postgres CDC. test_decoding ships with stock RDS
+  # Postgres; HeartbeatEnable prevents the replication slot from pinning WAL
+  # during idle periods. Consumer-supplied ECA wins if non-null.
+  default_postgres_source_eca = "PluginName=test_decoding;CaptureDDLs=N;HeartbeatEnable=true;HeartbeatFrequency=5;HeartbeatSchema=public;"
+
+  source_extra_connection_attributes = (
+    var.dms_source.engine_name == "postgres"
+    ? coalesce(var.dms_source.extra_connection_attributes, local.default_postgres_source_eca)
+    : var.dms_source.extra_connection_attributes
+  )
+}
+
+resource "aws_dms_endpoint" "source" {
+  # checkov:skip=CKV_AWS_296: Encryption uses the AWS managed DMS key by design
+  endpoint_id   = "${var.db}-source"
+  endpoint_type = "source"
+  engine_name   = var.dms_source.engine_name
+
+  database_name = coalesce(var.dms_source.database_name, var.dms_source.sid)
+  server_name   = local.database_credentials["host"]
+  username      = local.database_credentials["username"]
+  password      = var.dms_source.engine_name == "oracle" ? "${local.database_credentials["oracle_password"]},${local.database_credentials["asm_password"]}" : local.database_credentials["password"]
+  port          = local.database_credentials["port"]
+
+  extra_connection_attributes = local.source_extra_connection_attributes
+
+  tags = merge(
+    { Name = "${var.db}-source" },
+    var.tags
+  )
+}
+
+# DMS S3 Target Endpoint
+resource "aws_dms_s3_endpoint" "s3_target" {
+  # checkov:skip=CKV_AWS_298: Use AWS managed KMS key
+
+  endpoint_id             = "${var.db}-target"
+  endpoint_type           = "target"
+  bucket_name             = aws_s3_bucket.landing.bucket
+  service_access_role_arn = local.dms_vpc_role_arn
+  add_column_name         = var.s3_target_config.add_column_name
+  canned_acl_for_objects  = "bucket-owner-full-control"
+  cdc_max_batch_interval  = var.s3_target_config.max_batch_interval
+  cdc_min_file_size       = var.s3_target_config.min_file_size
+  # tflint-ignore: aws_dms_s3_endpoint_invalid_compression_type # GZIP is a valid DMS S3 value; ruleset is stale
+  compression_type = "GZIP"
+  data_format      = "parquet"
+  encoding_type    = "rle-dictionary"
+  # tflint-ignore: aws_dms_s3_endpoint_invalid_encryption_mode # SSE_S3 is a valid DMS S3 value; ruleset is stale
+  encryption_mode                  = "SSE_S3"
+  include_op_for_full_load         = true
+  parquet_timestamp_in_millisecond = true
+  parquet_version                  = "parquet-2-0"
+  timestamp_column_name            = var.s3_target_config.timestamp_column_name
+
+  tags = merge(
+    { Name = "${var.db}-target" },
+    var.tags
+  )
+}
