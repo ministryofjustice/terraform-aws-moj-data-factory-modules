@@ -3,16 +3,6 @@ variable "role_name" {
   type        = string
 }
 
-variable "environment" {
-  description = "Environment for the S3 bucket to create."
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "test", "prod"], var.environment)
-    error_message = "Environment must be one of 'dev', 'test', or 'prod'."
-  }
-}
-
 variable "trusted_account_id" {
   description = "AWS account ID allowed to assume the role."
   type        = string
@@ -43,12 +33,7 @@ variable "tags" {
 variable "s3_prefix" {
   description = "S3 key prefix allocated to the external client."
   type        = string
-
-  # Validation to ensure the prefix is not empty and does not contain leading or trailing slashes.
-  validation {
-    condition     = length(trim(var.s3_prefix, "/")) > 0
-    error_message = "s3_prefix must not be empty."
-  }
+  default     = ""
 }
 
 variable "bucket_arn" {
@@ -60,11 +45,7 @@ variable "s3_object_actions" {
   description = "S3 object actions allowed within the allocated prefix."
   type        = list(string)
 
-  default = [
-    "s3:GetObject",
-    "s3:PutObject",
-    "s3:DeleteObject"
-  ]
+  default = []
 }
 
 variable "kms_key_arn" {
@@ -80,13 +61,7 @@ variable "kms_actions" {
   description = "KMS cryptographic actions allowed through Amazon S3."
   type        = list(string)
 
-  default = [
-    "kms:Decrypt",
-    "kms:Encrypt",
-    "kms:GenerateDataKey",
-    "kms:ReEncryptFrom",
-    "kms:ReEncryptTo"
-  ]
+  default = []
 }
 
 variable "glue_database_arn" {
@@ -108,13 +83,5 @@ variable "glue_actions" {
   description = "Glue table actions allowed within the allocated database."
   type        = list(string)
 
-  default = [
-    "glue:GetDatabase",
-    "glue:GetTable",
-    "glue:SearchTables",
-    "glue:DeleteTable",
-    "glue:CreateTable",
-    "glue:UpdateTable"
-
-  ]
+  default = []
 }

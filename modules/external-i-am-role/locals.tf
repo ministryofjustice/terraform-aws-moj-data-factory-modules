@@ -1,10 +1,14 @@
 locals {
+
+  account_id = data.aws_caller_identity.current.account_id
+  region     = data.aws_region.current.region
   common_tags = merge(
     var.tags,
     {
-      ManagedBy = "Terraform"
-      Region    = data.aws_region.current.region
-      Environment = var.environment
+      ManagedBy   = "Terraform"
+      Region      = local.region
+      AccountId   = local.account_id
+      AccountName = terraform.workspace
     }
   )
 
@@ -18,3 +22,4 @@ locals {
     ":table/"
   )}/${var.glue_table_name}"
 }
+
