@@ -29,7 +29,7 @@ resource "aws_iam_role" "this" {
     ]
   })
 
-  tags = var.tags
+  tags = local.common_tags
 }
 
 # Creates inline IAM policy for the role, giving permissions to the assuming account.
