@@ -23,6 +23,7 @@ resource "aws_dms_endpoint" "source" {
   username      = local.database_credentials["username"]
   password      = var.dms_source.engine_name == "oracle" ? "${local.database_credentials["oracle_password"]},${local.database_credentials["asm_password"]}" : local.database_credentials["password"]
   port          = local.database_credentials["port"]
+  ssl_mode     = var.dms_source.ssl_mode
 
   extra_connection_attributes = local.source_extra_connection_attributes
 

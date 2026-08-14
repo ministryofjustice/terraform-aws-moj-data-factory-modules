@@ -46,6 +46,7 @@ variable "dms_source" {
     database_name               = optional(string)
     extra_connection_attributes = optional(string)
     cdc_start_time              = optional(string)
+    ssl_mode                    = optional(string)
   })
 
   validation {
