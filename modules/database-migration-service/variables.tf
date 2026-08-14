@@ -91,6 +91,11 @@ variable "output_bucket" {
   EOF
 }
 
+variable "output_bucket_kms_key_arn" {
+  type        = string
+  default     = ""
+}
+
 variable "s3_target_config" {
   type = object({
     add_column_name       = bool
