@@ -64,6 +64,13 @@ resource "aws_vpc_security_group_egress_rule" "postgres_outbound" {
 }
 
 resource "aws_db_instance" "postgres" {
+  # checkov:skip=CKV_AWS_118: Example instance, enhanced monitoring not needed
+  # checkov:skip=CKV_AWS_129: Example instance, logging not needed
+  # checkov:skip=CKV_AWS_157: Example instance, multi-AZ not needed
+  # checkov:skip=CKV_AWS_353: Example instance, performance insights not needed
+  # checkov:skip=CKV_AWS_293: Example instance, deletion protection not needed
+  # checkov:skip=CKV_AWS_161: Example instance, IAM authentication not needed
+
   identifier = var.name_prefix
 
   engine         = "postgres"

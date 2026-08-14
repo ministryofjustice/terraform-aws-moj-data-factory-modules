@@ -101,6 +101,8 @@ resource "aws_lambda_function" "oracle_sql_runner" {
   # checkov:skip=CKV_AWS_272: Code signing not needed for throwaway test Lambda
   # checkov:skip=CKV_AWS_116: DLQ not needed for throwaway test Lambda
   # checkov:skip=CKV_AWS_173: Environment variables don't contain secrets
+  # checkov:skip=CKV_AWS_115: Example Lambda, concurrent execution limit not needed
+  # checkov:skip=CKV_AWS_50: Example Lambda, X-Ray tracing not needed
   function_name    = "${var.name_prefix}-oracle-sql-runner"
   role             = aws_iam_role.lambda_sql_runner.arn
   handler          = "oracle_sql_runner.handler"

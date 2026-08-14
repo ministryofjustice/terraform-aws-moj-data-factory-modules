@@ -77,6 +77,12 @@ resource "aws_vpc_security_group_egress_rule" "oracle_outbound" {
 # --- Oracle RDS Instance ---
 
 resource "aws_db_instance" "oracle" {
+  # checkov:skip=CKV_AWS_118: Example instance, enhanced monitoring not needed
+  # checkov:skip=CKV_AWS_226: Example instance, updates not needed
+  # checkov:skip=CKV_AWS_129: Example instance, logging not needed
+  # checkov:skip=CKV_AWS_157: Example instance, Multi-AZ not needed
+  # checkov:skip=CKV_AWS_353: Example instance, performance insights not needed
+  # checkov:skip=CKV_AWS_293: Example instance, deletion protection not needed
   identifier = "${var.name_prefix}-oracle-dms-test"
 
   engine         = "oracle-se2"
