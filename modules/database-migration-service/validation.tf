@@ -52,7 +52,8 @@ data "aws_iam_policy_document" "validation_lambda_function" {
   statement {
     actions = [
       "kms:DescribeKey",
-      "kms:Decrypt"
+      "kms:Decrypt",
+      "kms:GenerateDataKey"
     ]
     resources = [
       var.dms_source.secrets_manager_kms_arn
@@ -62,6 +63,7 @@ data "aws_iam_policy_document" "validation_lambda_function" {
       variable = "kms:ViaService"
       values = [
         "secretsmanager.${data.aws_region.current.name}.amazonaws.com",
+        "s3.${data.aws_region.current.name}.amazonaws.com"
       ]
     }
   }
@@ -97,6 +99,7 @@ module "validation_lambda_function" {
     VALID_FILES_MUTABLE = var.valid_files_mutable
     OUTPUT_KEY_PREFIX   = var.output_key_prefix
     OUTPUT_KEY_SUFFIX   = var.output_key_suffix
+    KMS_KEY_ARN         = var.output_bucket_kms_key_arn
   }
 
   source_path = [{

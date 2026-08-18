@@ -94,6 +94,8 @@ def move_object(bucket_to: str, bucket_from: str, key: str, mutable: bool = Fals
     head_response = client.head_object(Bucket=bucket_from, Key=key)
     current_metadata = head_response.get("Metadata", {})
 
+    kms_key_arn = os.getenv("KMS_KEY_ARN", "")
+
     copy_params = {
         "Bucket": bucket_to,
         "CopySource": {"Bucket": bucket_from, "Key": key},
@@ -101,6 +103,10 @@ def move_object(bucket_to: str, bucket_from: str, key: str, mutable: bool = Fals
         "ServerSideEncryption": "AES256",
         "ACL": "bucket-owner-full-control",
     }
+
+    if kms_key_arn:
+        copy_params["ServerSideEncryption"] = "aws:kms"
+        copy_params["SSEKMSKeyId"] = kms_key_arn
 
     if current_metadata:
         copy_params["Metadata"] = current_metadata
