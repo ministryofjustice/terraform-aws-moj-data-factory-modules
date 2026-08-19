@@ -4,16 +4,6 @@ variable "name" {
   default     = "quarantine-lambda"
 }
 
-variable "environment" {
-  description = "Environment for the S3 bucket to create."
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "test", "prod"], var.environment)
-    error_message = "Environment must be one of 'dev', 'test', or 'prod'."
-  }
-}
-
 variable "runtime" {
   description = "Runtime for the Lambda function."
   type        = string

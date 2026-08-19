@@ -8,7 +8,6 @@ locals {
     {
       ManagedBy = "Terraform"
       Region    = data.aws_region.current.region
-      Environment = var.environment
     }
   )
 }

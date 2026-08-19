@@ -9,7 +9,6 @@ module "data_factory_guardduty_lambda" {
     source = "github.com/ministryofjustice/terraform-aws-moj-data-factory-modules//modules/.."
 
     name = "guardduty_lambda"
-    environment = "dev"
 
     tags = {
         Project     = "Avature"

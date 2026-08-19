@@ -34,5 +34,12 @@ resource "aws_lambda_function" "quarantine" {
   timeout     = var.timeout
   memory_size = var.memory_size
 
+  environment {
+    variables = {
+      QUARANTINE_BUCKET_NAME = var.quarantine_bucket_name
+      QUARANTINE_KMS_KEY_ARN = var.quarantine_kms_key_arn
+    }
+  }
+
   tags = local.common_tags
 }
