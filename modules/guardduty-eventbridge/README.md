@@ -10,8 +10,6 @@ module "data_factory_guardduty_eventbridge" {
 
     name = 'eventbridge_malware_event'
 
-    environment = "dev"
-
     bucket_names = ["avature-landing"]
 
     scan_result_statuses = ["THREATS_FOUND","FAILED", "ACCESS_DENIED"]

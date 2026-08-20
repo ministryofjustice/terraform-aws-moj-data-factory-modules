@@ -4,16 +4,6 @@ variable "name" {
   default     = "eventbridge-guardduty-quarantine"
 }
 
-variable "environment" {
-  description = "Environment for the S3 bucket to create."
-  type        = string
-
-  validation {
-    condition     = contains(["dev", "test", "prod"], var.environment)
-    error_message = "Environment must be one of 'dev', 'test', or 'prod'."
-  }
-}
-
 variable "bucket_names" {
   description = "Names of the S3 buckets to apply rule to."
   type        = list(string)
