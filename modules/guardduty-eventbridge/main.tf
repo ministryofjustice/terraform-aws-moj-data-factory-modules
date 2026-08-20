@@ -24,15 +24,13 @@ resource "aws_cloudwatch_event_rule" "guardduty_quarantine" {
       "aws.guardduty"
     ]
 
-    detail-type = [
+    "detail-type" = [
       "GuardDuty Malware Protection Object Scan Result"
     ]
 
     detail = {
       s3ObjectDetails = {
-        bucketName = [
-          var.bucket_names
-        ]
+        bucketName = var.bucket_names
       }
 
       scanResultDetails = {
