@@ -48,14 +48,14 @@ resource "aws_cloudwatch_event_rule" "guardduty_quarantine" {
 resource "aws_cloudwatch_event_target" "guardduty_quarantine_lambda" {
   rule      = aws_cloudwatch_event_rule.guardduty_quarantine.name
   target_id = var.target_lambda_name
-  arn       = aws_lambda_function.quarantine.arn
+  arn       = var.target_lambda_arn
 }
 
 # Lambda needs a policy resource to allow EventBridge to invoke it.
 resource "aws_lambda_permission" "allow_eventbridge_quarantine" {
   statement_id  = "AllowExecutionFromEventBridgeGuardDutyQuarantine"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.quarantine.function_name
+  function_name = var.target_lambda_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.guardduty_quarantine.arn
 }

@@ -7,6 +7,7 @@ variable "name" {
 variable "bucket_names" {
   description = "Names of the S3 buckets to apply rule to."
   type        = list(string)
+  default     = []
 }
 
 variable "target_lambda_arn" {
