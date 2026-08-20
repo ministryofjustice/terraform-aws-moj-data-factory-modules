@@ -54,7 +54,7 @@ resource "aws_iam_role" "quarantine_lambda" {
     ]
   })
 
-  tags = local.common_tags
+
 }
 
 # Permission to write logs to CloudWatch.
