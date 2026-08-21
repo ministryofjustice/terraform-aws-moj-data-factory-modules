@@ -83,6 +83,13 @@ resource "aws_iam_role_policy" "this" {
           var.glue_database_arn,
           local.glue_table_arn
         ]
+      },
+
+      {
+        Sid      = "AllowAssumeRole"
+        Effect   = "Allow"
+        Action   = ["sts:AssumeRole"]
+        Resource = aws_iam_role.this.arn
       }
     ]
   })
