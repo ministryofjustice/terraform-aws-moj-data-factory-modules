@@ -21,27 +21,6 @@ QUARANTINE_STATUSES = set(
 
 def quarantine_object(bucket_name, object_key):
     """Copy the object to the quarantine bucket then delete it from the source bucket."""
-    logger.info("Testing source access")
-
-    s3_client.head_object(
-        Bucket=bucket_name,
-        Key=object_key,
-    )
-
-    logger.info("Source access OK")
-
-    logger.info("Testing quarantine write")
-
-    s3_client.put_object(
-        Bucket=QUARANTINE_BUCKET_NAME,
-        Key="permission-test.txt",
-        Body=b"test",
-        ServerSideEncryption="aws:kms",
-        SSEKMSKeyId=QUARANTINE_KMS_KEY_ARN,
-    )
-
-    logger.info("Quarantine write OK")
-    
     s3_client.copy_object(
         Bucket=QUARANTINE_BUCKET_NAME,
         Key=object_key,
