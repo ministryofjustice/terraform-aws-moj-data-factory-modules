@@ -4,6 +4,12 @@ variable "name" {
   default     = "quarantine-lambda"
 }
 
+variable "quarantine_statuses" {
+  description = "List of scan result statuses that should trigger quarantine."
+  type        = list(string)
+  default     = ["THREATS_FOUND", "FAILED", "ACCESS_DENIED", "UNSUPPORTED"]
+}
+
 variable "runtime" {
   description = "Runtime for the Lambda function."
   type        = string

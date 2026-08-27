@@ -38,6 +38,7 @@ resource "aws_lambda_function" "quarantine" {
     variables = {
       QUARANTINE_BUCKET_NAME = var.quarantine_bucket_name
       QUARANTINE_KMS_KEY_ARN = var.quarantine_kms_key_arn
+      QUARANTINE_STATUSES = jsonencode(var.quarantine_statuses)
     }
   }
 
