@@ -27,25 +27,39 @@ def quarantine_object(bucket_name, object_key):
     )
     s3_client.delete_object(Bucket=bucket_name, Key=object_key)
 
-
 def lambda_handler(event, context):
-    # Log the incoming event
     logger.info("Received event: " + json.dumps(event, indent=2))
 
-    # Extract relevant information from the event
-    detail = event.get('detail', {})
+    detail = event.get("detail", {})
 
-    for object in detail.get('s3ObjectDetails', []):
-        bucket_name = object.get('bucketName')
-        object_key = object.get('objectKey')
-        scan_result_status = detail.get('scanResultDetails', {}).get('scanResultStatus')
-        scan_result = detail.get('scanResultDetails', {}).get('scanResult')
+    s3_object = detail.get("s3ObjectDetails", {})
+    bucket_name = s3_object.get("bucketName")
+    object_key = s3_object.get("objectKey")
 
-        # Log the extracted information
-        logger.info(f"Bucket: {bucket_name}, Object Key: {object_key}, Scan Result Status: {scan_result_status}, Scan Result: {scan_result}")
+    scan_result_status = (
+        detail.get("scanResultDetails", {})
+        .get("scanResultStatus")
+    )
 
-        if scan_result in ["THREATS_FOUND", "FAILED", "ACCESS_DENIED"]:
-            logger.info(f"Quarantining object {object_key} in bucket {bucket_name} due to scan result: {scan_result} with scan result status: {scan_result_status}")
-            quarantine_object(bucket_name, object_key)
+    logger.info(
+        f"Bucket: {bucket_name}, "
+        f"Object Key: {object_key}, "
+        f"Scan Result Status: {scan_result_status}"
+    )
 
-    logger.info(f"Lambda execution completed for object: {object_key} in bucket: {bucket_name}")
+    if scan_result_status in [
+        "THREATS_FOUND",
+        "FAILED",
+        "ACCESS_DENIED",
+    ]:
+        logger.info(
+            f"Quarantining object {object_key} in bucket {bucket_name} "
+            f"due to scan result: {scan_result_status}"
+        )
+
+        quarantine_object(bucket_name, object_key)
+
+    logger.info(
+        f"Lambda execution completed for object: "
+        f"{object_key} in bucket: {bucket_name}"
+    )
