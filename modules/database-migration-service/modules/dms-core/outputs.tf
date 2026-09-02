@@ -22,3 +22,23 @@ output "replication_subnet_group_id" {
   description = "ID of the DMS replication subnet group used by the replication instance."
   value       = local.replication_subnet_group_id
 }
+
+output "source_endpoint_arn" {
+  description = "ARN of the DMS source endpoint."
+  value       = aws_dms_endpoint.source.endpoint_arn
+}
+
+output "source_endpoint_id" {
+  description = "Identifier of the DMS source endpoint."
+  value       = aws_dms_endpoint.source.endpoint_id
+}
+
+output "target_endpoint_arn" {
+  description = "ARN of the DMS S3 target endpoint."
+  value       = aws_dms_s3_endpoint.target.endpoint_arn
+}
+
+output "target_endpoint_id" {
+  description = "Identifier of the DMS S3 target endpoint."
+  value       = aws_dms_s3_endpoint.target.endpoint_id
+}

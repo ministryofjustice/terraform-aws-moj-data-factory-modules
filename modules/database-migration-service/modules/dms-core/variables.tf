@@ -129,8 +129,9 @@ variable "security_group" {
     additional externally managed VPC security groups using
     additional_vpc_security_group_ids.
 
-    Source-specific ingress/egress policy is intentionally not modelled here yet.
-    That boundary will be addressed alongside reusable endpoint/network integration.
+    Source-specific ingress/egress policy is intentionally not modelled by this
+    module. Consumers remain responsible for providing the network connectivity
+    required between the DMS replication instance and the configured source.
   EOT
 
   type = object({
@@ -145,4 +146,215 @@ variable "tags" {
   description = "Tags applied to resources created by this module."
   type        = map(string)
   default     = {}
+}
+
+variable "source_endpoint" {
+  description = <<-EOT
+    Configuration for the AWS DMS source endpoint.
+
+    The source endpoint supports PostgreSQL and Oracle.
+
+    Authentication is provided through AWS Secrets Manager. The caller supplies
+    the secret ARN and the IAM role ARN that AWS DMS uses to access the secret.
+
+    The module does not read or decode the secret contents itself.
+
+    database_name remains explicit because it is part of the DMS endpoint
+    configuration rather than a credential.
+
+    Engine-specific DMS behaviour can be supplied through
+    extra_connection_attributes where required without embedding Data Hub-specific
+    assumptions into this module.
+  EOT
+
+  type = object({
+    endpoint_id = string
+    engine_name = string
+
+    database_name = string
+
+    secrets_manager_arn             = string
+    secrets_manager_access_role_arn = string
+
+    kms_key_arn     = optional(string)
+    certificate_arn = optional(string)
+
+    ssl_mode                    = optional(string, "none")
+    extra_connection_attributes = optional(string)
+  })
+
+  validation {
+    condition     = contains(["oracle", "postgres"], var.source_endpoint.engine_name)
+    error_message = "source_endpoint.engine_name must be either 'oracle' or 'postgres'."
+  }
+
+  validation {
+    condition     = length(trimspace(var.source_endpoint.endpoint_id)) > 0
+    error_message = "source_endpoint.endpoint_id must not be empty."
+  }
+
+  validation {
+    condition     = length(trimspace(var.source_endpoint.database_name)) > 0
+    error_message = "source_endpoint.database_name must not be empty."
+  }
+
+  validation {
+    condition     = length(trimspace(var.source_endpoint.secrets_manager_arn)) > 0
+    error_message = "source_endpoint.secrets_manager_arn must not be empty."
+  }
+
+  validation {
+    condition     = length(trimspace(var.source_endpoint.secrets_manager_access_role_arn)) > 0
+    error_message = "source_endpoint.secrets_manager_access_role_arn must not be empty."
+  }
+
+  validation {
+    condition = contains(
+      ["none", "require", "verify-ca", "verify-full"],
+      var.source_endpoint.ssl_mode
+    )
+
+    error_message = "source_endpoint.ssl_mode must be one of: none, require, verify-ca, verify-full."
+  }
+
+  validation {
+    condition = (
+      !contains(["verify-ca", "verify-full"], var.source_endpoint.ssl_mode)
+      ||
+      var.source_endpoint.certificate_arn != null
+    )
+
+    error_message = "source_endpoint.certificate_arn must be supplied when ssl_mode is 'verify-ca' or 'verify-full'."
+  }
+}
+
+variable "s3_target_endpoint" {
+  description = <<-EOT
+    Configuration for the AWS DMS S3 target endpoint.
+
+    The target bucket and service-access role are supplied by the caller.
+
+    This module configures DMS to write to the supplied S3 landing location but
+    does not create or manage the wider Raw/Raw History storage lifecycle.
+
+    S3 target settings are configurable so consumers can override DMS defaults
+    without introducing Data Hub-specific assumptions into the reusable module.
+  EOT
+
+  type = object({
+    endpoint_id             = string
+    bucket_name             = string
+    service_access_role_arn = string
+
+    bucket_folder = optional(string)
+
+    add_column_name        = optional(bool, true)
+    cdc_max_batch_interval = optional(number, 3600)
+    cdc_min_file_size      = optional(number, 32000)
+
+    compression_type = optional(string, "GZIP")
+    data_format      = optional(string, "parquet")
+    encoding_type    = optional(string, "rle_dictionary")
+
+    encryption_mode                   = optional(string, "SSE_S3")
+    server_side_encryption_kms_key_id = optional(string)
+
+    include_op_for_full_load         = optional(bool, true)
+    parquet_timestamp_in_millisecond = optional(bool, true)
+    parquet_version                  = optional(string, "parquet-2-0")
+    timestamp_column_name            = optional(string, "EXTRACTION_TIMESTAMP")
+  })
+
+  validation {
+    condition     = length(trimspace(var.s3_target_endpoint.endpoint_id)) > 0
+    error_message = "s3_target_endpoint.endpoint_id must not be empty."
+  }
+
+  validation {
+    condition     = length(trimspace(var.s3_target_endpoint.bucket_name)) > 0
+    error_message = "s3_target_endpoint.bucket_name must not be empty."
+  }
+
+  validation {
+    condition     = length(trimspace(var.s3_target_endpoint.service_access_role_arn)) > 0
+    error_message = "s3_target_endpoint.service_access_role_arn must not be empty."
+  }
+
+  validation {
+    condition = contains(
+      ["SSE_S3", "SSE_KMS"],
+      var.s3_target_endpoint.encryption_mode
+    )
+
+    error_message = "s3_target_endpoint.encryption_mode must be either 'SSE_S3' or 'SSE_KMS'."
+  }
+
+  validation {
+    condition = (
+      var.s3_target_endpoint.encryption_mode != "SSE_KMS"
+      ||
+      try(
+        length(trimspace(var.s3_target_endpoint.server_side_encryption_kms_key_id)) > 0,
+        false
+      )
+    )
+
+    error_message = "s3_target_endpoint.server_side_encryption_kms_key_id must be supplied when encryption_mode is 'SSE_KMS'."
+  }
+
+  validation {
+    condition = contains(
+      ["parquet", "csv"],
+      lower(var.s3_target_endpoint.data_format)
+    )
+
+    error_message = "s3_target_endpoint.data_format must be either 'parquet' or 'csv'."
+  }
+
+  validation {
+    condition     = var.s3_target_endpoint.cdc_max_batch_interval > 0
+    error_message = "s3_target_endpoint.cdc_max_batch_interval must be greater than zero."
+  }
+
+  validation {
+    condition     = var.s3_target_endpoint.cdc_min_file_size > 0
+    error_message = "s3_target_endpoint.cdc_min_file_size must be greater than zero."
+  }
+
+  validation {
+    condition = contains(
+      ["rle_dictionary", "plain", "plain_dictionary"],
+      var.s3_target_endpoint.encoding_type
+    )
+
+    error_message = "s3_target_endpoint.encoding_type must be one of: rle_dictionary, plain, plain_dictionary."
+  }
+
+  validation {
+    condition = (
+      var.s3_target_endpoint.encryption_mode == "SSE_KMS"
+      ||
+      var.s3_target_endpoint.server_side_encryption_kms_key_id == null
+    )
+
+    error_message = "s3_target_endpoint.server_side_encryption_kms_key_id must not be supplied when encryption_mode is 'SSE_S3'."
+  }
+
+  validation {
+    condition = contains(
+      ["GZIP", "NONE"],
+      var.s3_target_endpoint.compression_type
+    )
+
+    error_message = "s3_target_endpoint.compression_type must be either 'GZIP' or 'NONE'."
+  }
+
+  validation {
+    condition = contains(
+      ["parquet-1-0", "parquet-2-0"],
+      var.s3_target_endpoint.parquet_version
+    )
+
+    error_message = "s3_target_endpoint.parquet_version must be either 'parquet-1-0' or 'parquet-2-0'."
+  }
 }
