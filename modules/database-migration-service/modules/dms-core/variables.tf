@@ -209,15 +209,6 @@ variable "source_endpoint" {
   }
 
   validation {
-    condition = contains(
-      ["none", "require", "verify-ca", "verify-full"],
-      var.source_endpoint.ssl_mode
-    )
-
-    error_message = "source_endpoint.ssl_mode must be one of: none, require, verify-ca, verify-full."
-  }
-
-  validation {
     condition = (
       !contains(["verify-ca", "verify-full"], var.source_endpoint.ssl_mode)
       ||
@@ -281,15 +272,6 @@ variable "s3_target_endpoint" {
   }
 
   validation {
-    condition = contains(
-      ["SSE_S3", "SSE_KMS"],
-      var.s3_target_endpoint.encryption_mode
-    )
-
-    error_message = "s3_target_endpoint.encryption_mode must be either 'SSE_S3' or 'SSE_KMS'."
-  }
-
-  validation {
     condition = (
       var.s3_target_endpoint.encryption_mode != "SSE_KMS"
       ||
@@ -303,15 +285,6 @@ variable "s3_target_endpoint" {
   }
 
   validation {
-    condition = contains(
-      ["parquet", "csv"],
-      lower(var.s3_target_endpoint.data_format)
-    )
-
-    error_message = "s3_target_endpoint.data_format must be either 'parquet' or 'csv'."
-  }
-
-  validation {
     condition     = var.s3_target_endpoint.cdc_max_batch_interval > 0
     error_message = "s3_target_endpoint.cdc_max_batch_interval must be greater than zero."
   }
@@ -322,39 +295,12 @@ variable "s3_target_endpoint" {
   }
 
   validation {
-    condition = contains(
-      ["rle_dictionary", "plain", "plain_dictionary"],
-      var.s3_target_endpoint.encoding_type
-    )
-
-    error_message = "s3_target_endpoint.encoding_type must be one of: rle_dictionary, plain, plain_dictionary."
-  }
-
-  validation {
     condition = (
       var.s3_target_endpoint.encryption_mode == "SSE_KMS"
       ||
       var.s3_target_endpoint.server_side_encryption_kms_key_id == null
     )
 
-    error_message = "s3_target_endpoint.server_side_encryption_kms_key_id must not be supplied when encryption_mode is 'SSE_S3'."
-  }
-
-  validation {
-    condition = contains(
-      ["GZIP", "NONE"],
-      var.s3_target_endpoint.compression_type
-    )
-
-    error_message = "s3_target_endpoint.compression_type must be either 'GZIP' or 'NONE'."
-  }
-
-  validation {
-    condition = contains(
-      ["parquet-1-0", "parquet-2-0"],
-      var.s3_target_endpoint.parquet_version
-    )
-
-    error_message = "s3_target_endpoint.parquet_version must be either 'parquet-1-0' or 'parquet-2-0'."
+    error_message = "s3_target_endpoint.server_side_encryption_kms_key_id must only be supplied when encryption_mode is 'SSE_KMS'."
   }
 }
