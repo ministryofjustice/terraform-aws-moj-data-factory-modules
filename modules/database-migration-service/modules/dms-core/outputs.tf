@@ -42,3 +42,13 @@ output "target_endpoint_id" {
   description = "Identifier of the DMS S3 target endpoint."
   value       = aws_dms_s3_endpoint.target.endpoint_id
 }
+
+output "source_secrets_manager_access_role_arn" {
+  description = "ARN of the IAM role used by AWS DMS to access the source secret."
+  value       = local.source_secrets_manager_access_role_arn
+}
+
+output "s3_target_service_access_role_arn" {
+  description = "ARN of the IAM role used by AWS DMS to access the S3 target."
+  value       = local.s3_target_service_access_role_arn
+}

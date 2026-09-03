@@ -142,6 +142,66 @@ variable "security_group" {
   default = {}
 }
 
+variable "monitoring" {
+  description = <<-EOT
+    CloudWatch monitoring configuration for the DMS replication instance.
+
+    Monitoring is enabled by default. Alarm destinations are supplied by the
+    caller so this module does not own SNS topics, Slack integrations or other
+    notification infrastructure.
+
+    Thresholds are configurable to avoid embedding environment-specific
+    policy in the reusable module.
+  EOT
+
+  type = object({
+    enabled = optional(bool, true)
+
+    alarm_action_arns             = optional(list(string), [])
+    ok_action_arns                = optional(list(string), [])
+    insufficient_data_action_arns = optional(list(string), [])
+
+    cpu_utilization_threshold          = optional(number, 80)
+    free_storage_space_threshold_bytes = optional(number, 10737418240)
+    freeable_memory_threshold_bytes    = optional(number, 1073741824)
+
+    period_seconds     = optional(number, 300)
+    evaluation_periods = optional(number, 3)
+  })
+
+  default = {}
+
+  validation {
+    condition = (
+      var.monitoring.cpu_utilization_threshold > 0
+      &&
+      var.monitoring.cpu_utilization_threshold <= 100
+    )
+
+    error_message = "monitoring.cpu_utilization_threshold must be greater than zero and no greater than 100."
+  }
+
+  validation {
+    condition     = var.monitoring.free_storage_space_threshold_bytes > 0
+    error_message = "monitoring.free_storage_space_threshold_bytes must be greater than zero."
+  }
+
+  validation {
+    condition     = var.monitoring.freeable_memory_threshold_bytes > 0
+    error_message = "monitoring.freeable_memory_threshold_bytes must be greater than zero."
+  }
+
+  validation {
+    condition     = var.monitoring.period_seconds > 0
+    error_message = "monitoring.period_seconds must be greater than zero."
+  }
+
+  validation {
+    condition     = var.monitoring.evaluation_periods > 0
+    error_message = "monitoring.evaluation_periods must be greater than zero."
+  }
+}
+
 variable "tags" {
   description = "Tags applied to resources created by this module."
   type        = map(string)
@@ -154,8 +214,12 @@ variable "source_endpoint" {
 
     The source endpoint supports PostgreSQL and Oracle.
 
-    Authentication is provided through AWS Secrets Manager. The caller supplies
-    the secret ARN and the IAM role ARN that AWS DMS uses to access the secret.
+    Authentication is provided through AWS Secrets Manager.
+    The caller supplies the secret ARN and may provide an existing
+    IAM role ARN for AWS DMS to use.
+
+    If no access role is supplied the module creates a least-privilege role for
+    AWS DMS to access the source secret.
 
     The module does not read or decode the secret contents itself.
 
@@ -174,7 +238,8 @@ variable "source_endpoint" {
     database_name = string
 
     secrets_manager_arn             = string
-    secrets_manager_access_role_arn = string
+    secrets_manager_access_role_arn = optional(string)
+    secrets_manager_kms_key_arn     = optional(string)
 
     kms_key_arn     = optional(string)
     certificate_arn = optional(string)
@@ -204,8 +269,23 @@ variable "source_endpoint" {
   }
 
   validation {
-    condition     = length(trimspace(var.source_endpoint.secrets_manager_access_role_arn)) > 0
-    error_message = "source_endpoint.secrets_manager_access_role_arn must not be empty."
+    condition = (
+      var.source_endpoint.secrets_manager_access_role_arn == null
+      ||
+      length(trimspace(var.source_endpoint.secrets_manager_access_role_arn)) > 0
+    )
+
+    error_message = "source_endpoint.secrets_manager_access_role_arn must be null or a non-empty string."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.secrets_manager_kms_key_arn == null
+      ||
+      length(trimspace(var.source_endpoint.secrets_manager_kms_key_arn)) > 0
+    )
+
+    error_message = "source_endpoint.secrets_manager_kms_key_arn must be null or a non-empty string."
   }
 
   validation {
@@ -223,7 +303,10 @@ variable "s3_target_endpoint" {
   description = <<-EOT
     Configuration for the AWS DMS S3 target endpoint.
 
-    The target bucket and service-access role are supplied by the caller.
+    The target bucket is supplied by the caller.
+    The caller may provide an existing DMS service-access role. If no role is
+    supplied the module creates a least-privilege role for AWS DMS to access
+    the target bucket.
 
     This module configures DMS to write to the supplied S3 landing location but
     does not create or manage the wider Raw/Raw History storage lifecycle.
@@ -235,7 +318,7 @@ variable "s3_target_endpoint" {
   type = object({
     endpoint_id             = string
     bucket_name             = string
-    service_access_role_arn = string
+    service_access_role_arn = optional(string)
 
     bucket_folder = optional(string)
 
@@ -247,8 +330,8 @@ variable "s3_target_endpoint" {
     data_format      = optional(string, "parquet")
     encoding_type    = optional(string, "rle_dictionary")
 
-    encryption_mode                   = optional(string, "SSE_S3")
-    server_side_encryption_kms_key_id = optional(string)
+    encryption_mode                    = optional(string, "SSE_S3")
+    server_side_encryption_kms_key_arn = optional(string)
 
     include_op_for_full_load         = optional(bool, true)
     parquet_timestamp_in_millisecond = optional(bool, true)
@@ -267,8 +350,13 @@ variable "s3_target_endpoint" {
   }
 
   validation {
-    condition     = length(trimspace(var.s3_target_endpoint.service_access_role_arn)) > 0
-    error_message = "s3_target_endpoint.service_access_role_arn must not be empty."
+    condition = (
+      var.s3_target_endpoint.service_access_role_arn == null
+      ||
+      length(trimspace(var.s3_target_endpoint.service_access_role_arn)) > 0
+    )
+
+    error_message = "s3_target_endpoint.service_access_role_arn must be null or a non-empty string."
   }
 
   validation {
@@ -276,12 +364,12 @@ variable "s3_target_endpoint" {
       var.s3_target_endpoint.encryption_mode != "SSE_KMS"
       ||
       try(
-        length(trimspace(var.s3_target_endpoint.server_side_encryption_kms_key_id)) > 0,
+        length(trimspace(var.s3_target_endpoint.server_side_encryption_kms_key_arn)) > 0,
         false
       )
     )
 
-    error_message = "s3_target_endpoint.server_side_encryption_kms_key_id must be supplied when encryption_mode is 'SSE_KMS'."
+    error_message = "s3_target_endpoint.server_side_encryption_kms_key_arn must be supplied when encryption_mode is 'SSE_KMS'."
   }
 
   validation {
@@ -298,9 +386,9 @@ variable "s3_target_endpoint" {
     condition = (
       var.s3_target_endpoint.encryption_mode == "SSE_KMS"
       ||
-      var.s3_target_endpoint.server_side_encryption_kms_key_id == null
+      var.s3_target_endpoint.server_side_encryption_kms_key_arn == null
     )
 
-    error_message = "s3_target_endpoint.server_side_encryption_kms_key_id must only be supplied when encryption_mode is 'SSE_KMS'."
+    error_message = "s3_target_endpoint.server_side_encryption_kms_key_arn must only be supplied when encryption_mode is 'SSE_KMS'."
   }
 }
