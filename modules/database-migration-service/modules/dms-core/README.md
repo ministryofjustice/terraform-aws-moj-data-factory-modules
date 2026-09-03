@@ -205,8 +205,8 @@ The current monitoring covers:
 - free storage space
 - freeable memory
 
-Monitoring is enabled by default and the thresholds, evaluation period and alarm
-period can be configured by the caller.
+Monitoring is disabled by default and can be enabled by the caller. The thresholds,
+evaluation period and alarm period can then be configured by the caller.
 
 Alarm, OK and insufficient-data action ARNs are also supplied by the caller.
 The module therefore creates the reusable DMS monitoring capability without
