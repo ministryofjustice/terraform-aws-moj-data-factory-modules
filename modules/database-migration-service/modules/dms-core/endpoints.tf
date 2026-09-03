@@ -9,7 +9,7 @@ resource "aws_dms_endpoint" "source" {
   certificate_arn = var.source_endpoint.certificate_arn
 
   secrets_manager_arn             = var.source_endpoint.secrets_manager_arn
-  secrets_manager_access_role_arn = var.source_endpoint.secrets_manager_access_role_arn
+  secrets_manager_access_role_arn = local.source_secrets_manager_access_role_arn
 
   ssl_mode                    = var.source_endpoint.ssl_mode
   extra_connection_attributes = var.source_endpoint.extra_connection_attributes
@@ -28,7 +28,7 @@ resource "aws_dms_s3_endpoint" "target" {
 
   bucket_name             = var.s3_target_endpoint.bucket_name
   bucket_folder           = var.s3_target_endpoint.bucket_folder
-  service_access_role_arn = var.s3_target_endpoint.service_access_role_arn
+  service_access_role_arn = local.s3_target_service_access_role_arn
 
   add_column_name        = var.s3_target_endpoint.add_column_name
   cdc_max_batch_interval = var.s3_target_endpoint.cdc_max_batch_interval
@@ -39,7 +39,7 @@ resource "aws_dms_s3_endpoint" "target" {
   encoding_type    = var.s3_target_endpoint.encoding_type
 
   encryption_mode                   = var.s3_target_endpoint.encryption_mode
-  server_side_encryption_kms_key_id = var.s3_target_endpoint.server_side_encryption_kms_key_id
+  server_side_encryption_kms_key_id = var.s3_target_endpoint.server_side_encryption_kms_key_arn
 
   include_op_for_full_load         = var.s3_target_endpoint.include_op_for_full_load
   parquet_timestamp_in_millisecond = var.s3_target_endpoint.parquet_timestamp_in_millisecond

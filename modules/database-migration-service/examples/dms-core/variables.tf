@@ -94,8 +94,15 @@ variable "source_secrets_manager_arn" {
 }
 
 variable "source_secrets_manager_access_role_arn" {
-  description = "ARN of the IAM role that allows DMS to access the source secret."
+  description = "Optional existing IAM role ARN that allows DMS to access the source secret. If omitted the dms-core module creates a least-privilege role."
   type        = string
+  default     = null
+}
+
+variable "source_secrets_manager_kms_key_arn" {
+  description = "Optional KMS key ARN used to encrypt the source secret when the module creates the DMS Secrets Manager access role."
+  type        = string
+  default     = null
 }
 
 variable "source_endpoint_kms_key_arn" {
@@ -140,8 +147,9 @@ variable "target_bucket_folder" {
 }
 
 variable "target_service_access_role_arn" {
-  description = "ARN of the IAM role used by DMS to access the target S3 bucket."
+  description = "Optional existing IAM role ARN used by DMS to access the target S3 bucket. If omitted the dms-core module creates a least-privilege role."
   type        = string
+  default     = null
 }
 
 variable "target_encryption_mode" {
@@ -150,8 +158,32 @@ variable "target_encryption_mode" {
   default     = "SSE_S3"
 }
 
-variable "target_kms_key_id" {
-  description = "KMS key identifier used by the S3 target when target_encryption_mode is SSE_KMS."
+variable "target_kms_key_arn" {
+  description = "Optional KMS key ARN used by the S3 target when target_encryption_mode is SSE_KMS."
   type        = string
   default     = null
+}
+
+variable "monitoring_enabled" {
+  description = "Whether CloudWatch alarms should be created for the DMS replication instance."
+  type        = bool
+  default     = true
+}
+
+variable "monitoring_alarm_action_arns" {
+  description = "Optional ARNs invoked when a DMS replication instance alarm enters the ALARM state."
+  type        = list(string)
+  default     = []
+}
+
+variable "monitoring_ok_action_arns" {
+  description = "Optional ARNs invoked when a DMS replication instance alarm returns to the OK state."
+  type        = list(string)
+  default     = []
+}
+
+variable "monitoring_insufficient_data_action_arns" {
+  description = "Optional ARNs invoked when a DMS replication instance alarm enters the INSUFFICIENT_DATA state."
+  type        = list(string)
+  default     = []
 }

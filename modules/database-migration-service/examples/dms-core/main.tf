@@ -41,6 +41,7 @@ module "dms_core" {
 
     secrets_manager_arn             = var.source_secrets_manager_arn
     secrets_manager_access_role_arn = var.source_secrets_manager_access_role_arn
+    secrets_manager_kms_key_arn     = var.source_secrets_manager_kms_key_arn
 
     kms_key_arn     = var.source_endpoint_kms_key_arn
     certificate_arn = var.source_certificate_arn
@@ -55,8 +56,16 @@ module "dms_core" {
     bucket_folder           = var.target_bucket_folder
     service_access_role_arn = var.target_service_access_role_arn
 
-    encryption_mode                   = var.target_encryption_mode
-    server_side_encryption_kms_key_id = var.target_kms_key_id
+    encryption_mode                    = var.target_encryption_mode
+    server_side_encryption_kms_key_arn = var.target_kms_key_arn
+  }
+
+  monitoring = {
+    enabled = var.monitoring_enabled
+
+    alarm_action_arns             = var.monitoring_alarm_action_arns
+    ok_action_arns                = var.monitoring_ok_action_arns
+    insufficient_data_action_arns = var.monitoring_insufficient_data_action_arns
   }
 
   tags = var.tags
