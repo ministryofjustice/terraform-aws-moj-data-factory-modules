@@ -20,10 +20,15 @@ At the moment this module creates:
 - a DMS replication subnet group when an existing one is not supplied
 - a security group for the replication instance
 - the network configuration needed by the replication instance
+- a DMS source endpoint supporting PostgreSQL or Oracle
+- an S3 target endpoint
 - outputs that can be used by the other DMS components
 
-The next pieces of work will add the reusable source and target endpoints, IAM and
-monitoring behaviour.
+The source and target endpoints are configuration-driven. The caller provides
+the source engine and db configuration, Secrets Manager references,
+target S3 configuration and the IAM roles needed by DMS.
+
+The next pieces of work will add the reusable IAM and monitoring behaviour.
 
 ## What belongs in this module
 
@@ -96,8 +101,48 @@ built.
 Consumers that need a more restricted network setup can disable this behaviour and
 attach additional externally managed VPC security groups.
 
-Source-specific connectivity will be handled alongside the reusable endpoint and
-network configuration rather than being hard-coded into the replication instance.
+Source-specific connectivity is not hard-coded into the replication instance.
+The caller remains responsible for providing the network access required between
+DMS and the source db.
+
+## Source endpoint
+
+The module creates a DMS source endpoint for PostgreSQL or Oracle.
+
+The source configuration is supplied by the caller rather than being tied to a
+particular Data Hub source or db setup.
+
+Source credentials are referenced through AWS Secrets Manager. The module does
+not read or manage the credentials itself. The caller provides the secret ARN
+and the IAM role that DMS uses to access it.
+
+Engine-specific DMS connection behaviour can be supplied using
+`extra_connection_attributes` where required.
+
+Optional endpoint KMS and certificate references can also be supplied when they
+are needed by the source configuration.
+
+The module does not set PostgreSQL or Oracle-specific networking such as database
+ports or security-group rules. Those remain part of the caller's network and
+source configuration.
+
+## S3 target endpoint
+
+The module creates the DMS S3 target endpoint used for landing replicated data.
+
+The caller provides the target bucket, the IAM role used by DMS to access the
+bucket and an optional bucket folder where required.
+
+The endpoint supports configurable DMS S3 settings including output format,
+compression, Parquet settings, CDC batching and encryption.
+
+S3 target encryption can use either S3-managed encryption or KMS-backed
+encryption. When KMS-backed encryption is used the caller provides the required
+KMS key reference.
+
+The module only configures the DMS target endpoint. It does not create or own the
+target bucket and it does not manage Raw History, ingestion versions or any
+downstream data lifecycle.
 
 ## DMS engine version
 
@@ -127,6 +172,10 @@ roles directly to every replication instance.
 
 For now any AWS account using this module must already have the DMS prerequisites
 required by AWS.
+
+The source and target endpoint interfaces also accept externally managed IAM
+role references where DMS needs access to Secrets Manager or S3. Creating and
+managing those roles is not part of the current implementation.
 
 ## Backwards compatibility
 
@@ -184,8 +233,10 @@ No modules.
 
 | Name | Type |
 | ---- | ---- |
+| [aws_dms_endpoint.source](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_endpoint) | resource |
 | [aws_dms_replication_instance.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_instance) | resource |
 | [aws_dms_replication_subnet_group.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_replication_subnet_group) | resource |
+| [aws_dms_s3_endpoint.target](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dms_s3_endpoint) | resource |
 | [aws_security_group.replication_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
 | [aws_vpc_security_group_egress_rule.replication_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc_security_group_egress_rule) | resource |
 
@@ -195,7 +246,9 @@ No modules.
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_name"></a> [name](#input\_name) | Stable name used to identify the DMS ingestion infrastructure. | `string` | n/a | yes |
 | <a name="input_replication_instance"></a> [replication\_instance](#input\_replication\_instance) | Configuration for the AWS DMS replication instance.<br/><br/>For replication subnet configuration exactly one of the following approaches<br/>must be used:<br/><br/>  - provide existing\_replication\_subnet\_group\_id to use an existing DMS<br/>    replication subnet group<br/><br/>    or<br/><br/>  - provide at least two subnet\_ids and allow this module to create the DMS<br/>    replication subnet group<br/><br/>replication\_subnet\_group\_name is used only when this module creates the subnet<br/>group. If omitted name is used.<br/><br/>engine\_version is intentionally not restricted to a hard-coded allow list.<br/>AWS DMS and the AWS provider remain authoritative for supported engine versions. | <pre>object({<br/>    replication_instance_id    = string<br/>    replication_instance_class = string<br/>    allocated_storage          = number<br/><br/>    engine_version = optional(string)<br/>    kms_key_arn    = optional(string)<br/><br/>    multi_az          = optional(bool, false)<br/>    availability_zone = optional(string)<br/><br/>    apply_immediately            = optional(bool, false)<br/>    auto_minor_version_upgrade   = optional(bool, true)<br/>    preferred_maintenance_window = optional(string, "sun:10:30-sun:14:30")<br/><br/>    existing_replication_subnet_group_id = optional(string)<br/>    replication_subnet_group_name        = optional(string)<br/>    subnet_ids                           = optional(list(string))<br/>  })</pre> | n/a | yes |
-| <a name="input_security_group"></a> [security\_group](#input\_security\_group) | Security-group configuration for the DMS replication instance.<br/><br/>This module always creates a dedicated security group for the replication instance.<br/><br/>allow\_all\_egress defaults to true to preserve the connectivity behaviour<br/>of the existing DE DMS implementation.<br/><br/>Consumers with a stricter network model can disable that rule and attach<br/>additional externally managed VPC security groups using<br/>additional\_vpc\_security\_group\_ids.<br/><br/>Source-specific ingress/egress policy is intentionally not modelled here yet.<br/>That boundary will be addressed alongside reusable endpoint/network integration. | <pre>object({<br/>    allow_all_egress                  = optional(bool, true)<br/>    additional_vpc_security_group_ids = optional(list(string), [])<br/>  })</pre> | `{}` | no |
+| <a name="input_s3_target_endpoint"></a> [s3\_target\_endpoint](#input\_s3\_target\_endpoint) | Configuration for the AWS DMS S3 target endpoint.<br/><br/>The target bucket and service-access role are supplied by the caller.<br/><br/>This module configures DMS to write to the supplied S3 landing location but<br/>does not create or manage the wider Raw/Raw History storage lifecycle.<br/><br/>S3 target settings are configurable so consumers can override DMS defaults<br/>without introducing Data Hub-specific assumptions into the reusable module. | <pre>object({<br/>    endpoint_id             = string<br/>    bucket_name             = string<br/>    service_access_role_arn = string<br/><br/>    bucket_folder = optional(string)<br/><br/>    add_column_name        = optional(bool, true)<br/>    cdc_max_batch_interval = optional(number, 3600)<br/>    cdc_min_file_size      = optional(number, 32000)<br/><br/>    compression_type = optional(string, "GZIP")<br/>    data_format      = optional(string, "parquet")<br/>    encoding_type    = optional(string, "rle_dictionary")<br/><br/>    encryption_mode                   = optional(string, "SSE_S3")<br/>    server_side_encryption_kms_key_id = optional(string)<br/><br/>    include_op_for_full_load         = optional(bool, true)<br/>    parquet_timestamp_in_millisecond = optional(bool, true)<br/>    parquet_version                  = optional(string, "parquet-2-0")<br/>    timestamp_column_name            = optional(string, "EXTRACTION_TIMESTAMP")<br/>  })</pre> | n/a | yes |
+| <a name="input_security_group"></a> [security\_group](#input\_security\_group) | Security-group configuration for the DMS replication instance.<br/><br/>This module always creates a dedicated security group for the replication instance.<br/><br/>allow\_all\_egress defaults to true to preserve the connectivity behaviour<br/>of the existing DE DMS implementation.<br/><br/>Consumers with a stricter network model can disable that rule and attach<br/>additional externally managed VPC security groups using<br/>additional\_vpc\_security\_group\_ids.<br/><br/>Source-specific ingress/egress policy is intentionally not modelled by this<br/>module. Consumers remain responsible for providing the network connectivity<br/>required between the DMS replication instance and the configured source. | <pre>object({<br/>    allow_all_egress                  = optional(bool, true)<br/>    additional_vpc_security_group_ids = optional(list(string), [])<br/>  })</pre> | `{}` | no |
+| <a name="input_source_endpoint"></a> [source\_endpoint](#input\_source\_endpoint) | Configuration for the AWS DMS source endpoint.<br/><br/>The source endpoint supports PostgreSQL and Oracle.<br/><br/>Authentication is provided through AWS Secrets Manager. The caller supplies<br/>the secret ARN and the IAM role ARN that AWS DMS uses to access the secret.<br/><br/>The module does not read or decode the secret contents itself.<br/><br/>database\_name remains explicit because it is part of the DMS endpoint<br/>configuration rather than a credential.<br/><br/>Engine-specific DMS behaviour can be supplied through<br/>extra\_connection\_attributes where required without embedding Data Hub-specific<br/>assumptions into this module. | <pre>object({<br/>    endpoint_id = string<br/>    engine_name = string<br/><br/>    database_name = string<br/><br/>    secrets_manager_arn             = string<br/>    secrets_manager_access_role_arn = string<br/><br/>    kms_key_arn     = optional(string)<br/>    certificate_arn = optional(string)<br/><br/>    ssl_mode                    = optional(string, "none")<br/>    extra_connection_attributes = optional(string)<br/>  })</pre> | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to resources created by this module. | `map(string)` | `{}` | no |
 | <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC in which the DMS replication infrastructure is deployed. | `string` | n/a | yes |
 
@@ -208,4 +261,8 @@ No modules.
 | <a name="output_replication_security_group_id"></a> [replication\_security\_group\_id](#output\_replication\_security\_group\_id) | ID of the security group created by this module for the DMS replication instance. |
 | <a name="output_replication_security_group_ids"></a> [replication\_security\_group\_ids](#output\_replication\_security\_group\_ids) | Security group IDs attached to the DMS replication instance. |
 | <a name="output_replication_subnet_group_id"></a> [replication\_subnet\_group\_id](#output\_replication\_subnet\_group\_id) | ID of the DMS replication subnet group used by the replication instance. |
+| <a name="output_source_endpoint_arn"></a> [source\_endpoint\_arn](#output\_source\_endpoint\_arn) | ARN of the DMS source endpoint. |
+| <a name="output_source_endpoint_id"></a> [source\_endpoint\_id](#output\_source\_endpoint\_id) | Identifier of the DMS source endpoint. |
+| <a name="output_target_endpoint_arn"></a> [target\_endpoint\_arn](#output\_target\_endpoint\_arn) | ARN of the DMS S3 target endpoint. |
+| <a name="output_target_endpoint_id"></a> [target\_endpoint\_id](#output\_target\_endpoint\_id) | Identifier of the DMS S3 target endpoint. |
 <!-- END_TF_DOCS -->
