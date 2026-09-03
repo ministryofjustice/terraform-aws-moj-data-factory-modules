@@ -146,7 +146,7 @@ variable "monitoring" {
   description = <<-EOT
     CloudWatch monitoring configuration for the DMS replication instance.
 
-    Monitoring is disabled by default and can be enabled by the caller. Alarm destinations are supplied by the
+    Monitoring is enabled by default. Alarm destinations are supplied by the
     caller so this module does not own SNS topics, Slack integrations or other
     notification infrastructure.
 
@@ -155,7 +155,7 @@ variable "monitoring" {
   EOT
 
   type = object({
-    enabled = optional(bool, false)
+    enabled = optional(bool, true)
 
     alarm_action_arns             = optional(list(string), [])
     ok_action_arns                = optional(list(string), [])
@@ -192,25 +192,13 @@ variable "monitoring" {
   }
 
   validation {
-    condition = (
-      var.monitoring.period_seconds >= 60
-      &&
-      var.monitoring.period_seconds == floor(var.monitoring.period_seconds)
-      &&
-      var.monitoring.period_seconds % 60 == 0
-    )
-
-    error_message = "monitoring.period_seconds must be a whole number of at least 60 seconds and a multiple of 60."
+    condition     = var.monitoring.period_seconds > 0
+    error_message = "monitoring.period_seconds must be greater than zero."
   }
 
   validation {
-    condition = (
-      var.monitoring.evaluation_periods > 0
-      &&
-      var.monitoring.evaluation_periods == floor(var.monitoring.evaluation_periods)
-    )
-
-    error_message = "monitoring.evaluation_periods must be a positive whole number."
+    condition     = var.monitoring.evaluation_periods > 0
+    error_message = "monitoring.evaluation_periods must be greater than zero."
   }
 }
 

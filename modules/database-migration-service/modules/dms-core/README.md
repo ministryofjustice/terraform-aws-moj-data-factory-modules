@@ -205,7 +205,7 @@ The current monitoring covers:
 - free storage space
 - freeable memory
 
-Monitoring is disabled by default and can be enabled by the caller. The thresholds,
+Monitoring is enabled by default. The thresholds,
 evaluation period and alarm period can then be configured by the caller.
 
 Alarm, OK and insufficient-data action ARNs are also supplied by the caller.
