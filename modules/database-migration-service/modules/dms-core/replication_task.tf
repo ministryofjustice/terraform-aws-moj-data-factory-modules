@@ -1,10 +1,8 @@
-data "template_file" "table-mappings" {
-  template = var.table_mappings
-
-  vars = {
+locals {
+  table-mappings = templatefile(var.table_mappings, {
     input_schema = var.rename_rule_source_schema
     output_space = var.rename_rule_output_space
-  }
+  })
 }
 
 resource "aws_dms_replication_task" "dms_replication" {
@@ -16,7 +14,7 @@ resource "aws_dms_replication_task" "dms_replication" {
   source_endpoint_arn      = var.dms_source_endpoint
   target_endpoint_arn      = var.dms_target_endpoint
 
-  table_mappings            = replace(data.template_file.table-mappings.rendered, "\\s", "")
+  table_mappings            = replace(locals.table-mappings, "\\s", "")
   replication_task_settings = var.replication_task_settings
 
   cdc_start_time     = var.cdc_start_time
