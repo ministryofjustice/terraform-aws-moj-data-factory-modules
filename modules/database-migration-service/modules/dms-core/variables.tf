@@ -392,3 +392,83 @@ variable "s3_target_endpoint" {
     error_message = "s3_target_endpoint.server_side_encryption_kms_key_arn must only be supplied when encryption_mode is 'SSE_KMS'."
   }
 }
+
+#----------------------------------------------------------------------
+# Replication Task Variables
+#----------------------------------------------------------------------
+
+variable "enable_replication_task" {
+  type        = bool
+  default     = false
+  description = "Controls creation of the DMS replication task."
+}
+
+variable "env" {
+  type        = string
+  default     = ""
+  description = "Environment identifier (e.g., dev, prod)."
+}
+
+variable "migration_type" {
+  type        = string
+  default     = ""
+  description = "Migration type: full-load | cdc | full-load-and-cdc"
+  validation {
+    condition     = contains(["full-load", "cdc", "full-load-and-cdc"], var.migration_type)
+    error_message = "migration_type must be one of: full-load, cdc, full-load-and-cdc."
+  }
+}
+
+variable "dms_replication_instance" {
+  type        = string
+  default     = ""
+  description = "ARN of the DMS replication instance."
+}
+
+variable "dms_source_endpoint" {
+  type        = string
+  default     = ""
+  description = "ARN of the DMS source endpoint."
+}
+
+variable "dms_target_endpoint" {
+  type        = string
+  default     = ""
+  description = "ARN of the DMS target endpoint."
+}
+
+variable "table_mappings" {
+  type        = string
+  default     = ""
+  description = "JSON string defining table mapping rules."
+}
+
+variable "rename_rule_source_schema" {
+  description = "The source schema we will rename to a target output 'space'"
+  type        = string
+  default     = ""
+}
+
+variable "rename_rule_output_space" {
+  description = "The name of the target output 'space' that the source schema will be renamed to"
+  type        = string
+  default     = ""
+}
+
+variable "replication_task_settings" {
+  type        = any
+  default     = {}
+  description = "JSON string defining replication task settings."
+}
+
+variable "cdc_start_time" {
+  type        = string
+  default     = null
+  description = "RFC3339 formatted UTC timestamp to start CDC extraction (e.g., 2026-01-01T00:00:00Z)."
+}
+
+variable "cdc_start_position" {
+  type        = string
+  default     = null
+  description = "Indicates the start position for CDC (e.g. LSN or SCN)."
+}

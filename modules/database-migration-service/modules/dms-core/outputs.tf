@@ -52,3 +52,22 @@ output "s3_target_service_access_role_arn" {
   description = "ARN of the IAM role used by AWS DMS to access the S3 target."
   value       = local.s3_target_service_access_role_arn
 }
+
+#----------------------------------------------------------------------
+# Replication Task Outputs
+#----------------------------------------------------------------------
+
+output "replication_task_arn" {
+  value       = try(aws_dms_replication_task.dms_replication[0].replication_task_arn, null)
+  description = "ARN of the created DMS replication task."
+}
+
+output "replication_task_id" {
+  value       = try(aws_dms_replication_task.dms_replication[0].replication_task_id, null)
+  description = "Task ID of the created DMS replication task."
+}
+
+output "migration_type" {
+  value       = try(aws_dms_replication_task.dms_replication[0].migration_type, null)
+  description = "Migration type of the created DMS replication task."
+}
