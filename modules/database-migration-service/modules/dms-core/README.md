@@ -25,6 +25,7 @@ At the moment this module creates:
 - optional least-privilege IAM roles for DMS access to the source secret and S3 target
 - configurable CloudWatch alarms for the DMS replication instance
 - outputs that can be used by the other DMS components
+- configurable DMS replication tasks for Full Load, CDC and Full Load + CDC
 
 The source and target endpoints are configuration-driven. The caller provides
 the source engine and db configuration, Secrets Manager references and target
@@ -297,7 +298,7 @@ configuration using `terraform-docs`.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.63.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.42 |
 
 ## Modules
 
