@@ -1,39 +1,29 @@
-locals {
-  table-mappings = templatefile(var.table_mappings, {
-    input_schema = var.rename_rule_source_schema
-    output_space = var.rename_rule_output_space
-  })
-}
+resource "aws_dms_replication_task" "this" {
+  for_each = var.replication_tasks
 
-resource "aws_dms_replication_task" "dms_replication" {
-  count = var.enable_replication_task ? 1 : 0
+  replication_task_id = each.value.replication_task_id
+  migration_type      = each.value.migration_type
 
-  replication_task_id      = "${var.name}-task-${var.env}"
-  migration_type           = var.migration_type
-  replication_instance_arn = var.dms_replication_instance
-  source_endpoint_arn      = var.dms_source_endpoint
-  target_endpoint_arn      = var.dms_target_endpoint
+  replication_instance_arn = aws_dms_replication_instance.this.replication_instance_arn
+  source_endpoint_arn      = aws_dms_endpoint.source.endpoint_arn
+  target_endpoint_arn      = aws_dms_s3_endpoint.target.endpoint_arn
 
-  table_mappings            = replace(locals.table-mappings, "\\s", "")
-  replication_task_settings = var.replication_task_settings
-
-  cdc_start_time     = var.cdc_start_time
-  cdc_start_position = var.cdc_start_position
+  table_mappings            = each.value.table_mappings
+  replication_task_settings = each.value.replication_task_settings
 
   start_replication_task = false
 
   tags = merge(
     var.tags,
+    each.value.tags,
     {
-      name = "${var.name}-task-${var.env}"
+      Name = each.value.replication_task_id
     }
   )
 
   lifecycle {
     ignore_changes = [
-      replication_task_settings,
-      cdc_start_position,
-      cdc_start_time
+      start_replication_task
     ]
   }
 }

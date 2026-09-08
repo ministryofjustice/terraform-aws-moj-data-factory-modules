@@ -397,78 +397,72 @@ variable "s3_target_endpoint" {
 # Replication Task Variables
 #----------------------------------------------------------------------
 
-variable "enable_replication_task" {
-  type        = bool
-  default     = false
-  description = "Controls creation of the DMS replication task."
-}
+variable "replication_tasks" {
+  description = <<-EOT
+    DMS replication tasks to provision against the replication infrastructure
+    created by this module.
 
-variable "env" {
-  type        = string
-  default     = ""
-  description = "Environment identifier (e.g., dev, prod)."
-}
+    Each task defines infrastructure configuration only. Runtime execution,
+    including task start/stop, sequencing, CDC recovery positions, retries and
+    replay, remains outside this module and is owned by orchestration.
 
-variable "migration_type" {
-  type        = string
-  default     = ""
-  description = "Migration type: full-load | cdc | full-load-and-cdc"
+    table_mappings must contain prepared DMS table-mapping JSON. The module does
+    not generate mappings or understand domain-specific table-selection rules.
+
+    replication_task_settings can be supplied where task-specific DMS settings
+    are required.
+  EOT
+
+  type = map(object({
+    replication_task_id = string
+    migration_type      = string
+    table_mappings      = string
+
+    replication_task_settings = optional(string)
+
+    tags = optional(map(string), {})
+  }))
+
+  default = {}
+
   validation {
-    condition     = contains(["full-load", "cdc", "full-load-and-cdc"], var.migration_type)
-    error_message = "migration_type must be one of: full-load, cdc, full-load-and-cdc."
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      length(trimspace(task.replication_task_id)) > 0
+    ])
+
+    error_message = "replication_tasks replication_task_id values must not be empty."
   }
-}
 
-variable "dms_replication_instance" {
-  type        = string
-  default     = ""
-  description = "ARN of the DMS replication instance."
-}
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      contains(
+        ["full-load", "cdc", "full-load-and-cdc"],
+        task.migration_type
+      )
+    ])
 
-variable "dms_source_endpoint" {
-  type        = string
-  default     = ""
-  description = "ARN of the DMS source endpoint."
-}
+    error_message = "replication_tasks migration_type must be one of: full-load, cdc, full-load-and-cdc."
+  }
 
-variable "dms_target_endpoint" {
-  type        = string
-  default     = ""
-  description = "ARN of the DMS target endpoint."
-}
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      can(jsondecode(task.table_mappings))
+    ])
 
-variable "table_mappings" {
-  type        = string
-  default     = ""
-  description = "JSON string defining table mapping rules."
-}
+    error_message = "replication_tasks table_mappings must contain valid JSON."
+  }
 
-variable "rename_rule_source_schema" {
-  description = "The source schema we will rename to a target output 'space'"
-  type        = string
-  default     = ""
-}
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      task.replication_task_settings == null
+      ||
+      can(jsondecode(task.replication_task_settings))
+    ])
 
-variable "rename_rule_output_space" {
-  description = "The name of the target output 'space' that the source schema will be renamed to"
-  type        = string
-  default     = ""
-}
-
-variable "replication_task_settings" {
-  type        = any
-  default     = {}
-  description = "JSON string defining replication task settings."
-}
-
-variable "cdc_start_time" {
-  type        = string
-  default     = null
-  description = "RFC3339 formatted UTC timestamp to start CDC extraction (e.g., 2026-01-01T00:00:00Z)."
-}
-
-variable "cdc_start_position" {
-  type        = string
-  default     = null
-  description = "Indicates the start position for CDC (e.g. LSN or SCN)."
+    error_message = "replication_tasks replication_task_settings must be null or contain valid JSON."
+  }
 }

@@ -57,17 +57,14 @@ output "s3_target_service_access_role_arn" {
 # Replication Task Outputs
 #----------------------------------------------------------------------
 
-output "replication_task_arn" {
-  value       = try(aws_dms_replication_task.dms_replication[0].replication_task_arn, null)
-  description = "ARN of the created DMS replication task."
-}
+output "replication_tasks" {
+  description = "DMS replication task identifiers exposed for downstream orchestration and monitoring."
 
-output "replication_task_id" {
-  value       = try(aws_dms_replication_task.dms_replication[0].replication_task_id, null)
-  description = "Task ID of the created DMS replication task."
-}
-
-output "migration_type" {
-  value       = try(aws_dms_replication_task.dms_replication[0].migration_type, null)
-  description = "Migration type of the created DMS replication task."
+  value = {
+    for key, task in aws_dms_replication_task.this : key => {
+      arn            = task.replication_task_arn
+      id             = task.replication_task_id
+      migration_type = task.migration_type
+    }
+  }
 }

@@ -187,3 +187,19 @@ variable "monitoring_insufficient_data_action_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "replication_tasks" {
+  description = "Example DMS replication tasks to provision."
+
+  type = map(object({
+    replication_task_id = string
+    migration_type      = string
+    table_mappings      = string
+
+    replication_task_settings = optional(string)
+
+    tags = optional(map(string), {})
+  }))
+
+  default = {}
+}

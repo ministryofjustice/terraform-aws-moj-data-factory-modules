@@ -60,6 +60,8 @@ module "dms_core" {
     server_side_encryption_kms_key_arn = var.target_kms_key_arn
   }
 
+  replication_tasks = var.replication_tasks
+
   monitoring = {
     enabled = var.monitoring_enabled
 
