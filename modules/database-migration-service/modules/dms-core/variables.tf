@@ -392,3 +392,77 @@ variable "s3_target_endpoint" {
     error_message = "s3_target_endpoint.server_side_encryption_kms_key_arn must only be supplied when encryption_mode is 'SSE_KMS'."
   }
 }
+
+#----------------------------------------------------------------------
+# Replication Task Variables
+#----------------------------------------------------------------------
+
+variable "replication_tasks" {
+  description = <<-EOT
+    DMS replication tasks to provision against the replication infrastructure
+    created by this module.
+
+    Each task defines infrastructure configuration only. Runtime execution,
+    including task start/stop, sequencing, CDC recovery positions, retries and
+    replay, remains outside this module and is owned by orchestration.
+
+    table_mappings must contain prepared DMS table-mapping JSON. The module does
+    not generate mappings or understand domain-specific table-selection rules.
+
+    replication_task_settings can be supplied where task-specific DMS settings
+    are required.
+  EOT
+
+  type = map(object({
+    replication_task_id = string
+    migration_type      = string
+    table_mappings      = string
+
+    replication_task_settings = optional(string)
+
+    tags = optional(map(string), {})
+  }))
+
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      length(trimspace(task.replication_task_id)) > 0
+    ])
+
+    error_message = "replication_tasks replication_task_id values must not be empty."
+  }
+
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      contains(
+        ["full-load", "cdc", "full-load-and-cdc"],
+        task.migration_type
+      )
+    ])
+
+    error_message = "replication_tasks migration_type must be one of: full-load, cdc, full-load-and-cdc."
+  }
+
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      can(jsondecode(task.table_mappings))
+    ])
+
+    error_message = "replication_tasks table_mappings must contain valid JSON."
+  }
+
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      task.replication_task_settings == null
+      ||
+      can(jsondecode(task.replication_task_settings))
+    ])
+
+    error_message = "replication_tasks replication_task_settings must be null or contain valid JSON."
+  }
+}

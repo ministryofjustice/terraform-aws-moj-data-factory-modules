@@ -52,3 +52,19 @@ output "s3_target_service_access_role_arn" {
   description = "ARN of the IAM role used by AWS DMS to access the S3 target."
   value       = local.s3_target_service_access_role_arn
 }
+
+#----------------------------------------------------------------------
+# Replication Task Outputs
+#----------------------------------------------------------------------
+
+output "replication_tasks" {
+  description = "DMS replication task identifiers exposed for downstream orchestration and monitoring."
+
+  value = {
+    for key, task in aws_dms_replication_task.this : key => {
+      arn            = task.replication_task_arn
+      id             = task.replication_task_id
+      migration_type = task.migration_type
+    }
+  }
+}

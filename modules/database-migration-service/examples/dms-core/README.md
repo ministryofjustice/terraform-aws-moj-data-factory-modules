@@ -15,6 +15,7 @@ The example covers:
 - an S3 target endpoint
 - optional IAM role creation for source Secrets Manager and S3 target access
 - configurable CloudWatch monitoring for the DMS replication instance
+- replication tasks
 
 The example expects the caller to provide existing infrastructure such as:
 
@@ -39,3 +40,40 @@ Engine-specific DMS behaviour can be supplied through
 
 This example is not connected to an existing Data Factory or HMPPS deployment.
 It is intended to demonstrate and validate the reusable module interface only.
+
+## Replication tasks
+
+The example can optionally provision one or more DMS replication tasks using
+the replication instance and endpoints created by the `dms-core` module.
+
+Supported migration types are:
+
+- `full-load`
+- `cdc`
+- `full-load-and-cdc`
+
+Replication tasks are supplied as a map. For example:
+
+```hcl
+replication_tasks = {
+  full_load = {
+    replication_task_id = "example-full-load"
+    migration_type      = "full-load"
+
+    table_mappings = jsonencode({
+      rules = [
+        {
+          "rule-type"   = "selection"
+          "rule-id"     = "1"
+          "rule-name"   = "include-tables"
+          "rule-action" = "include"
+
+          "object-locator" = {
+            "schema-name" = "%"
+            "table-name"  = "%"
+          }
+        }
+      ]
+    })
+  }
+}
