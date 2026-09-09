@@ -328,7 +328,7 @@ variable "s3_target_endpoint" {
 
     compression_type = optional(string, "GZIP")
     data_format      = optional(string, "parquet")
-    encoding_type    = optional(string, "rle_dictionary")
+    encoding_type    = optional(string, "rle-dictionary")
 
     encryption_mode                    = optional(string, "SSE_S3")
     server_side_encryption_kms_key_arn = optional(string)
