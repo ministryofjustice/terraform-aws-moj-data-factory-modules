@@ -27,12 +27,26 @@ data "aws_iam_policy_document" "dms_assume_role" {
   }
 }
 
+data "aws_iam_policy_document" "dms_source_secrets_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type = "Service"
+      identifiers = [
+        "dms.${data.aws_region.current.region}.amazonaws.com"
+      ]
+    }
+  }
+}
+
 resource "aws_iam_role" "source_secrets_access" {
   count = local.create_source_secrets_access_role ? 1 : 0
 
   name = "${var.name}-dms-source-secrets"
 
-  assume_role_policy = data.aws_iam_policy_document.dms_assume_role.json
+  assume_role_policy = data.aws_iam_policy_document.dms_source_secrets_assume_role.json
 
   tags = merge(
     var.tags,
