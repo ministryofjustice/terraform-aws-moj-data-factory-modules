@@ -48,6 +48,13 @@ module "dms_core" {
 
     ssl_mode                    = var.source_ssl_mode
     extra_connection_attributes = var.source_extra_connection_attributes
+
+    postgres_settings = var.source_engine_name == "postgres" ? {
+      map_boolean_as_boolean       = var.source_postgres_map_boolean_as_boolean
+      fail_tasks_on_lob_truncation = var.source_postgres_fail_tasks_on_lob_truncation
+      heartbeat_enable             = var.source_postgres_heartbeat_enable
+      heartbeat_frequency          = var.source_postgres_heartbeat_frequency
+    } : null
   }
 
   s3_target_endpoint = {
@@ -55,6 +62,9 @@ module "dms_core" {
     bucket_name             = var.target_bucket_name
     bucket_folder           = var.target_bucket_folder
     service_access_role_arn = var.target_service_access_role_arn
+
+    cdc_path      = var.target_cdc_path
+    max_file_size = var.target_max_file_size
 
     encryption_mode                    = var.target_encryption_mode
     server_side_encryption_kms_key_arn = var.target_kms_key_arn

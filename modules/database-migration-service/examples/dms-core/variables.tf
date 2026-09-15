@@ -129,6 +129,30 @@ variable "source_extra_connection_attributes" {
   default     = null
 }
 
+variable "source_postgres_map_boolean_as_boolean" {
+  description = "Optional PostgreSQL endpoint setting controlling whether boolean values are mapped as native booleans."
+  type        = bool
+  default     = null
+}
+
+variable "source_postgres_fail_tasks_on_lob_truncation" {
+  description = "Optional PostgreSQL endpoint setting controlling whether a DMS task fails when LOB data is truncated."
+  type        = bool
+  default     = null
+}
+
+variable "source_postgres_heartbeat_enable" {
+  description = "Optional PostgreSQL endpoint setting controlling WAL heartbeat behaviour."
+  type        = bool
+  default     = null
+}
+
+variable "source_postgres_heartbeat_frequency" {
+  description = "Optional PostgreSQL WAL heartbeat frequency in minutes."
+  type        = number
+  default     = null
+}
+
 variable "target_endpoint_id" {
   description = "Identifier for the example DMS S3 target endpoint."
   type        = string
@@ -143,6 +167,18 @@ variable "target_bucket_name" {
 variable "target_bucket_folder" {
   description = "Optional folder/prefix within the target S3 bucket."
   type        = string
+  default     = null
+}
+
+variable "target_cdc_path" {
+  description = "Optional path within the target S3 bucket where DMS writes CDC files."
+  type        = string
+  default     = null
+}
+
+variable "target_max_file_size" {
+  description = "Optional maximum DMS S3 output file size in KB."
+  type        = number
   default     = null
 }
 

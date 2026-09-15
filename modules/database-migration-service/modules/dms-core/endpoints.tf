@@ -14,6 +14,17 @@ resource "aws_dms_endpoint" "source" {
   ssl_mode                    = var.source_endpoint.ssl_mode
   extra_connection_attributes = var.source_endpoint.extra_connection_attributes
 
+  dynamic "postgres_settings" {
+    for_each = var.source_endpoint.postgres_settings == null ? [] : [var.source_endpoint.postgres_settings]
+
+    content {
+      map_boolean_as_boolean       = postgres_settings.value.map_boolean_as_boolean
+      fail_tasks_on_lob_truncation = postgres_settings.value.fail_tasks_on_lob_truncation
+      heartbeat_enable             = postgres_settings.value.heartbeat_enable
+      heartbeat_frequency          = postgres_settings.value.heartbeat_frequency
+    }
+  }
+
   tags = merge(
     var.tags,
     {
@@ -33,6 +44,8 @@ resource "aws_dms_s3_endpoint" "target" {
   add_column_name        = var.s3_target_endpoint.add_column_name
   cdc_max_batch_interval = var.s3_target_endpoint.cdc_max_batch_interval
   cdc_min_file_size      = var.s3_target_endpoint.cdc_min_file_size
+  cdc_path               = var.s3_target_endpoint.cdc_path
+  max_file_size          = var.s3_target_endpoint.max_file_size
 
   compression_type = var.s3_target_endpoint.compression_type
   data_format      = var.s3_target_endpoint.data_format

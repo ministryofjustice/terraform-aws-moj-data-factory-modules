@@ -35,8 +35,15 @@ infrastructure.
 The module does not read source credentials directly and does not create the
 wider storage, orchestration, validation or processing layers.
 
-Engine-specific DMS behaviour can be supplied through
+PostgreSQL-specific endpoint behaviour can be configured through the optional
+PostgreSQL settings exposed by the example, including WAL heartbeat, LOB
+truncation handling and boolean mapping.
+
+Other engine-specific DMS behaviour can be supplied through
 `source_extra_connection_attributes` when required.
+
+The S3 target also supports optional CDC path and maximum file-size
+configuration.
 
 This example is not connected to an existing Data Factory or HMPPS deployment.
 It is intended to demonstrate and validate the reusable module interface only.
