@@ -134,6 +134,18 @@ Native PostgreSQL endpoint behaviour can be configured through the optional
 handling and WAL heartbeat configuration without introducing
 consumer-specific defaults into the reusable module.
 
+For Oracle sources that use Binary Reader with ASM, the optional
+`oracle_settings` object can supply an ASM Secrets Manager ARN and
+the customer-managed KMS key ARN used to encrypt that secret.
+
+The module passes the ASM secret reference to AWS DMS and does not read or
+decode the ASM credentials. When the module creates the source Secrets Manager
+access role, that role is granted least-privilege access to both the db
+secret and the ASM secret including the configured KMS keys where required.
+
+Oracle sources that do not require ASM, such as LogMiner configurations, do
+not need to supply `oracle_settings`.
+
 Other engine-specific DMS connection behaviour can be supplied using
 `extra_connection_attributes` where required.
 
@@ -183,8 +195,10 @@ The module can create the IAM roles required by DMS to access the configured
 source secret and S3 target.
 
 For source Secrets Manager access the generated role is scoped to the supplied
-secret. If a customer-managed KMS key ARN is supplied for the secret the role
-is also granted the required KMS permissions.
+db secret. When Oracle ASM settings are configured the same role is also
+granted access to the supplied ASM secret. If customer-managed KMS key ARNs are
+supplied for either secret, the role is granted the required KMS permissions
+only for those keys.
 
 For S3 target access the generated role is scoped to the supplied target bucket
 and when configured the supplied bucket folder. If KMS-backed target encryption
@@ -192,6 +206,16 @@ is configured the role is also granted the required permissions on that key.
 
 Consumers can provide existing IAM role ARNs instead. In that case the module
 uses those roles rather than creating new ones.
+
+When an existing source Secrets Manager access role is supplied, the caller
+owns that role and is responsible for granting it access to all required source
+secrets and KMS keys, including the Oracle ASM secret and its KMS key when ASM
+settings are configured.
+
+For cross-account source secrets, the secret-owning infrastructure remains
+responsible for the required Secrets Manager resource policies and KMS key
+policies. This module does not modify policies on externally owned secrets or
+KMS keys.
 
 The account-level DMS service roles are intentionally not created by this module,
 including:

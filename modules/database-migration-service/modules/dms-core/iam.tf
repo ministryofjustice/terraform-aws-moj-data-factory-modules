@@ -69,9 +69,12 @@ data "aws_iam_policy_document" "source_secrets_access" {
       "secretsmanager:DescribeSecret"
     ]
 
-    resources = [
-      var.source_endpoint.secrets_manager_arn
-    ]
+    resources = compact([
+      var.source_endpoint.secrets_manager_arn,
+      var.source_endpoint.oracle_settings != null
+      ? var.source_endpoint.oracle_settings.secrets_manager_oracle_asm_secret_arn
+      : null
+    ])
   }
 
   dynamic "statement" {
@@ -89,6 +92,29 @@ data "aws_iam_policy_document" "source_secrets_access" {
 
       resources = [
         var.source_endpoint.secrets_manager_kms_key_arn
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = (
+      var.source_endpoint.oracle_settings != null
+      &&
+      var.source_endpoint.oracle_settings.secrets_manager_oracle_asm_kms_key_arn != null
+    ) ? [1] : []
+
+    content {
+      sid = "DecryptOracleAsmSecret"
+
+      effect = "Allow"
+
+      actions = [
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ]
+
+      resources = [
+        var.source_endpoint.oracle_settings.secrets_manager_oracle_asm_kms_key_arn
       ]
     }
   }
@@ -187,6 +213,12 @@ locals {
     local.create_source_secrets_access_role
     ? aws_iam_role.source_secrets_access[0].arn
     : var.source_endpoint.secrets_manager_access_role_arn
+  )
+
+  source_oracle_asm_secrets_manager_access_role_arn = (
+    var.source_endpoint.oracle_settings != null
+    ? local.source_secrets_manager_access_role_arn
+    : null
   )
 
   s3_target_service_access_role_arn = (

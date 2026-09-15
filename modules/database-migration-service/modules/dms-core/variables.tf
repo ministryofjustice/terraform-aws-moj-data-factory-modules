@@ -254,6 +254,11 @@ variable "source_endpoint" {
       heartbeat_enable             = optional(bool)
       heartbeat_frequency          = optional(number)
     }))
+
+    oracle_settings = optional(object({
+      secrets_manager_oracle_asm_secret_arn  = string
+      secrets_manager_oracle_asm_kms_key_arn = optional(string)
+    }))
   })
 
   validation {
@@ -281,6 +286,37 @@ variable "source_endpoint" {
     )
 
     error_message = "source_endpoint.postgres_settings.heartbeat_frequency must be greater than zero when supplied."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.oracle_settings == null
+      ||
+      var.source_endpoint.engine_name == "oracle"
+    )
+    error_message = "source_endpoint.oracle_settings may only be supplied when source_endpoint.engine_name is 'oracle'."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.oracle_settings == null
+      ||
+      length(trimspace(var.source_endpoint.oracle_settings.secrets_manager_oracle_asm_secret_arn)) > 0
+    )
+
+    error_message = "source_endpoint.oracle_settings.secrets_manager_oracle_asm_secret_arn must be non-empty when oracle_settings is supplied."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.oracle_settings == null
+      ||
+      var.source_endpoint.oracle_settings.secrets_manager_oracle_asm_kms_key_arn == null
+      ||
+      length(trimspace(var.source_endpoint.oracle_settings.secrets_manager_oracle_asm_kms_key_arn)) > 0
+    )
+
+    error_message = "source_endpoint.oracle_settings.secrets_manager_oracle_asm_kms_key_arn must be null or a non-empty string."
   }
 
   validation {

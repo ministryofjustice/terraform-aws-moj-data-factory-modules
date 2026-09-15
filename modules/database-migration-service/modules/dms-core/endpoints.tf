@@ -25,6 +25,15 @@ resource "aws_dms_endpoint" "source" {
     }
   }
 
+  dynamic "oracle_settings" {
+    for_each = var.source_endpoint.oracle_settings == null ? [] : [var.source_endpoint.oracle_settings]
+
+    content {
+      secrets_manager_oracle_asm_secret_id       = oracle_settings.value.secrets_manager_oracle_asm_secret_arn
+      secrets_manager_oracle_asm_access_role_arn = local.source_oracle_asm_secrets_manager_access_role_arn
+    }
+  }
+
   tags = merge(
     var.tags,
     {
