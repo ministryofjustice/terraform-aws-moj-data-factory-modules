@@ -226,9 +226,10 @@ variable "source_endpoint" {
     database_name remains explicit because it is part of the DMS endpoint
     configuration rather than a credential.
 
-    Engine-specific DMS behaviour can be supplied through
-    extra_connection_attributes where required without embedding Data Hub-specific
-    assumptions into this module.
+    Native PostgreSQL endpoint behaviour can be configured through the optional
+    postgres_settings object. Other engine-specific DMS behaviour can be supplied
+    through extra_connection_attributes where required without embedding
+    Data Hub specific assumptions into this module.
   EOT
 
   type = object({
@@ -246,11 +247,40 @@ variable "source_endpoint" {
 
     ssl_mode                    = optional(string, "none")
     extra_connection_attributes = optional(string)
+
+    postgres_settings = optional(object({
+      map_boolean_as_boolean       = optional(bool)
+      fail_tasks_on_lob_truncation = optional(bool)
+      heartbeat_enable             = optional(bool)
+      heartbeat_frequency          = optional(number)
+    }))
   })
 
   validation {
     condition     = contains(["oracle", "postgres"], var.source_endpoint.engine_name)
     error_message = "source_endpoint.engine_name must be either 'oracle' or 'postgres'."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.postgres_settings == null
+      ||
+      var.source_endpoint.engine_name == "postgres"
+    )
+
+    error_message = "source_endpoint.postgres_settings may only be supplied when source_endpoint.engine_name is 'postgres'."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.postgres_settings == null
+      ||
+      var.source_endpoint.postgres_settings.heartbeat_frequency == null
+      ||
+      var.source_endpoint.postgres_settings.heartbeat_frequency > 0
+    )
+
+    error_message = "source_endpoint.postgres_settings.heartbeat_frequency must be greater than zero when supplied."
   }
 
   validation {
@@ -325,6 +355,8 @@ variable "s3_target_endpoint" {
     add_column_name        = optional(bool, true)
     cdc_max_batch_interval = optional(number, 3600)
     cdc_min_file_size      = optional(number, 32000)
+    cdc_path               = optional(string)
+    max_file_size          = optional(number)
 
     compression_type = optional(string, "GZIP")
     data_format      = optional(string, "parquet")
@@ -380,6 +412,30 @@ variable "s3_target_endpoint" {
   validation {
     condition     = var.s3_target_endpoint.cdc_min_file_size > 0
     error_message = "s3_target_endpoint.cdc_min_file_size must be greater than zero."
+  }
+
+  validation {
+    condition = (
+      var.s3_target_endpoint.cdc_path == null
+      ||
+      length(trimspace(var.s3_target_endpoint.cdc_path)) > 0
+    )
+
+    error_message = "s3_target_endpoint.cdc_path must be null or a non-empty string."
+  }
+
+  validation {
+    condition = (
+      var.s3_target_endpoint.max_file_size == null
+      ||
+      (
+        var.s3_target_endpoint.max_file_size >= 1
+        &&
+        var.s3_target_endpoint.max_file_size <= 1048576
+      )
+    )
+
+    error_message = "s3_target_endpoint.max_file_size must be between 1 and 1048576 KB when supplied."
   }
 
   validation {
