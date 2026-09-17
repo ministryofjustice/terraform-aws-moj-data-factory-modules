@@ -105,6 +105,7 @@ module "dms_core" {
   }
 
   replication_tasks = var.replication_tasks
+  task_logging      = var.task_logging
 
   tags = var.tags
 }

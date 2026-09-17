@@ -53,6 +53,15 @@ output "s3_target_service_access_role_arn" {
   value       = local.s3_target_service_access_role_arn
 }
 
+output "replication_task_log_group" {
+  description = "CloudWatch log group managed for DMS replication tasks, or null when task logging is disabled or no tasks are configured."
+
+  value = length(aws_cloudwatch_log_group.replication_tasks) > 0 ? {
+    arn  = aws_cloudwatch_log_group.replication_tasks[0].arn
+    name = aws_cloudwatch_log_group.replication_tasks[0].name
+  } : null
+}
+
 #----------------------------------------------------------------------
 # Replication Task Outputs
 #----------------------------------------------------------------------

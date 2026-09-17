@@ -489,6 +489,88 @@ variable "s3_target_endpoint" {
 # Replication Task Variables
 #----------------------------------------------------------------------
 
+variable "task_logging" {
+  description = <<-EOT
+    CloudWatch logging configuration for DMS replication tasks.
+
+    AWS DMS writes task logs to the log group:
+    dms-tasks-<replication-instance-id>
+
+    This module manages that log group and its retention when logging is enabled
+    and at least one replication task is configured.
+
+    The account-level dms-cloudwatch-logs-role remains an external prerequisite
+    and is intentionally not created by this module.
+
+    log_components maps DMS component identifiers to logging severity.
+    LOGGER_SEVERITY_DEFAULT is recommended for normal operation.
+  EOT
+
+  type = object({
+    enabled           = optional(bool, true)
+    retention_in_days = optional(number, 30)
+    kms_key_arn       = optional(string)
+
+    log_components = optional(map(string), {
+      METADATA_MANAGER = "LOGGER_SEVERITY_DEFAULT"
+      SORTER           = "LOGGER_SEVERITY_DEFAULT"
+      SOURCE_CAPTURE   = "LOGGER_SEVERITY_DEFAULT"
+      SOURCE_UNLOAD    = "LOGGER_SEVERITY_DEFAULT"
+      TABLES_MANAGER   = "LOGGER_SEVERITY_DEFAULT"
+      TARGET_APPLY     = "LOGGER_SEVERITY_DEFAULT"
+      TARGET_LOAD      = "LOGGER_SEVERITY_DEFAULT"
+      TASK_MANAGER     = "LOGGER_SEVERITY_DEFAULT"
+    })
+  })
+
+  default = {}
+
+  validation {
+    condition = contains([
+      1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545,
+      731, 1096, 1827, 2192, 2557, 2922, 3288, 3653
+    ], var.task_logging.retention_in_days)
+
+    error_message = "task_logging.retention_in_days must be a retention period supported by CloudWatch Logs."
+  }
+
+  validation {
+    condition = (
+      var.task_logging.kms_key_arn == null
+      ? true
+      : length(trimspace(var.task_logging.kms_key_arn)) > 0
+    )
+
+    error_message = "task_logging.kms_key_arn must be null or a non-empty ARN."
+  }
+
+  validation {
+    condition = (
+      !var.task_logging.enabled
+      ||
+      length(var.task_logging.log_components) > 0
+    )
+
+    error_message = "task_logging.log_components must contain at least one component when logging is enabled."
+  }
+
+  validation {
+    condition = alltrue([
+      for severity in values(var.task_logging.log_components) :
+      contains([
+        "LOGGER_SEVERITY_ERROR",
+        "LOGGER_SEVERITY_WARNING",
+        "LOGGER_SEVERITY_INFO",
+        "LOGGER_SEVERITY_DEFAULT",
+        "LOGGER_SEVERITY_DEBUG",
+        "LOGGER_SEVERITY_DETAILED_DEBUG"
+      ], severity)
+    ])
+
+    error_message = "task_logging.log_components values must contain a supported AWS DMS logging severity."
+  }
+}
+
 variable "replication_tasks" {
   description = <<-EOT
     DMS replication tasks to provision against the replication infrastructure
@@ -556,5 +638,33 @@ variable "replication_tasks" {
     ])
 
     error_message = "replication_tasks replication_task_settings must be null or contain valid JSON."
+  }
+
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      task.replication_task_settings == null
+      ||
+      can(keys(jsondecode(task.replication_task_settings)))
+    ])
+
+    error_message = "replication_tasks replication_task_settings must be null or contain a JSON object."
+  }
+
+  validation {
+    condition = alltrue([
+      for task in values(var.replication_tasks) :
+      task.replication_task_settings == null
+      ||
+      try(
+        !contains(
+          keys(jsondecode(task.replication_task_settings)),
+          "Logging"
+        ),
+        false
+      )
+    ])
+
+    error_message = "Configure DMS task logging through task_logging; replication_task_settings must not contain a top-level Logging property."
   }
 }
