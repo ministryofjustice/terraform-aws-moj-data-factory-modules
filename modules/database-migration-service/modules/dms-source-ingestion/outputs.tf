@@ -13,6 +13,11 @@ output "dms_target_endpoint_arn" {
   value       = module.dms_core.target_endpoint_arn
 }
 
+output "replication_task_log_group" {
+  description = "CloudWatch log group managed for DMS replication tasks or null when task logging is disabled or no tasks are configured."
+  value       = module.dms_core.replication_task_log_group
+}
+
 output "replication_tasks" {
   description = "DMS replication tasks keyed by task name, including ARN, ID and migration type."
   value       = module.dms_core.replication_tasks

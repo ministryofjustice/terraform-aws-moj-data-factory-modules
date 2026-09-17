@@ -24,6 +24,7 @@ At the moment this module creates:
 - an S3 target endpoint
 - optional least-privilege IAM roles for DMS access to the source secret and S3 target
 - configurable CloudWatch alarms for the DMS replication instance
+- configurable CloudWatch task logging and log retention
 - outputs that can be used by the other DMS components
 - configurable DMS replication tasks for Full Load, CDC and Full Load + CDC
 
@@ -257,9 +258,33 @@ outside this module, including:
 
 Those responsibilities belong to the orchestration layer.
 
-Task-specific DMS logging can be configured through the supplied replication-task
-settings where required while notification routing and workflow behaviour remain
-outside the core module.
+## Task logging
+
+CloudWatch task logging is enabled by default when at least one replication task
+is configured.
+
+The module manages the DMS log group using the AWS-defined name:
+
+`dms-tasks-<replication-instance-id>`
+
+Log retention defaults to 30 days and can be changed through `task_logging`.
+The default components use `LOGGER_SEVERITY_DEFAULT` to provide operational
+information without enabling verbose debug logging. Callers can override the
+component to severity map when additional troubleshooting is required.
+
+Task logging must be configured through `task_logging`. A top-level `Logging`
+property is not accepted in a task's raw `replication_task_settings`, preventing
+conflicting ownership of the same DMS configuration.
+
+The account-level `dms-cloudwatch-logs-role` remains an external prerequisite
+and is not created by this module.
+
+An optional customer-managed KMS key can be supplied for log-group encryption.
+The caller remains responsible for ensuring its key policy allows CloudWatch Logs
+to use the key.
+
+If the expected DMS log group already exists it must be imported into the
+module's Terraform state before applying this configuration.
 
 ## Monitoring
 
@@ -338,6 +363,7 @@ No modules.
 
 | Name | Type |
 | ---- | ---- |
+| [aws_cloudwatch_log_group.replication_tasks](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_log_group) | resource |
 | [aws_cloudwatch_metric_alarm.replication_instance_cpu_utilization](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
 | [aws_cloudwatch_metric_alarm.replication_instance_free_storage_space](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
 | [aws_cloudwatch_metric_alarm.replication_instance_freeable_memory](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/cloudwatch_metric_alarm) | resource |
@@ -368,8 +394,9 @@ No modules.
 | <a name="input_replication_tasks"></a> [replication\_tasks](#input\_replication\_tasks) | DMS replication tasks to provision against the replication infrastructure<br/>created by this module.<br/><br/>Each task defines infrastructure configuration only. Runtime execution,<br/>including task start/stop, sequencing, CDC recovery positions, retries and<br/>replay, remains outside this module and is owned by orchestration.<br/><br/>table\_mappings must contain prepared DMS table-mapping JSON. The module does<br/>not generate mappings or understand domain-specific table-selection rules.<br/><br/>replication\_task\_settings can be supplied where task-specific DMS settings<br/>are required. | <pre>map(object({<br/>    replication_task_id = string<br/>    migration_type      = string<br/>    table_mappings      = string<br/><br/>    replication_task_settings = optional(string)<br/><br/>    tags = optional(map(string), {})<br/>  }))</pre> | `{}` | no |
 | <a name="input_s3_target_endpoint"></a> [s3\_target\_endpoint](#input\_s3\_target\_endpoint) | Configuration for the AWS DMS S3 target endpoint.<br/><br/>The target bucket is supplied by the caller.<br/>The caller may provide an existing DMS service-access role. If no role is<br/>supplied the module creates a least-privilege role for AWS DMS to access<br/>the target bucket.<br/><br/>This module configures DMS to write to the supplied S3 landing location but<br/>does not create or manage the wider Raw/Raw History storage lifecycle.<br/><br/>S3 target settings are configurable so consumers can override DMS defaults<br/>without introducing Data Hub-specific assumptions into the reusable module. | <pre>object({<br/>    endpoint_id             = string<br/>    bucket_name             = string<br/>    service_access_role_arn = optional(string)<br/><br/>    bucket_folder = optional(string)<br/><br/>    add_column_name        = optional(bool, true)<br/>    cdc_max_batch_interval = optional(number, 3600)<br/>    cdc_min_file_size      = optional(number, 32000)<br/>    cdc_path               = optional(string)<br/>    max_file_size          = optional(number)<br/><br/>    compression_type = optional(string, "GZIP")<br/>    data_format      = optional(string, "parquet")<br/>    encoding_type    = optional(string, "rle-dictionary")<br/><br/>    encryption_mode                    = optional(string, "SSE_S3")<br/>    server_side_encryption_kms_key_arn = optional(string)<br/><br/>    include_op_for_full_load         = optional(bool, true)<br/>    parquet_timestamp_in_millisecond = optional(bool, true)<br/>    parquet_version                  = optional(string, "parquet-2-0")<br/>    timestamp_column_name            = optional(string, "EXTRACTION_TIMESTAMP")<br/>  })</pre> | n/a | yes |
 | <a name="input_security_group"></a> [security\_group](#input\_security\_group) | Security-group configuration for the DMS replication instance.<br/><br/>This module always creates a dedicated security group for the replication instance.<br/><br/>allow\_all\_egress defaults to true to preserve the connectivity behaviour<br/>of the existing DE DMS implementation.<br/><br/>Consumers with a stricter network model can disable that rule and attach<br/>additional externally managed VPC security groups using<br/>additional\_vpc\_security\_group\_ids.<br/><br/>Source-specific ingress/egress policy is intentionally not modelled by this<br/>module. Consumers remain responsible for providing the network connectivity<br/>required between the DMS replication instance and the configured source. | <pre>object({<br/>    allow_all_egress                  = optional(bool, true)<br/>    additional_vpc_security_group_ids = optional(list(string), [])<br/>  })</pre> | `{}` | no |
-| <a name="input_source_endpoint"></a> [source\_endpoint](#input\_source\_endpoint) | Configuration for the AWS DMS source endpoint.<br/><br/>The source endpoint supports PostgreSQL and Oracle.<br/><br/>Authentication is provided through AWS Secrets Manager.<br/>The caller supplies the secret ARN and may provide an existing<br/>IAM role ARN for AWS DMS to use.<br/><br/>If no access role is supplied the module creates a least-privilege role for<br/>AWS DMS to access the source secret.<br/><br/>The module does not read or decode the secret contents itself.<br/><br/>database\_name remains explicit because it is part of the DMS endpoint<br/>configuration rather than a credential.<br/><br/>Native PostgreSQL endpoint behaviour can be configured through the optional<br/>postgres\_settings object. Other engine-specific DMS behaviour can be supplied<br/>through extra\_connection\_attributes where required without embedding<br/>Data Hub specific assumptions into this module. | <pre>object({<br/>    endpoint_id = string<br/>    engine_name = string<br/><br/>    database_name = string<br/><br/>    secrets_manager_arn             = string<br/>    secrets_manager_access_role_arn = optional(string)<br/>    secrets_manager_kms_key_arn     = optional(string)<br/><br/>    kms_key_arn     = optional(string)<br/>    certificate_arn = optional(string)<br/><br/>    ssl_mode                    = optional(string, "none")<br/>    extra_connection_attributes = optional(string)<br/><br/>    postgres_settings = optional(object({<br/>      map_boolean_as_boolean       = optional(bool)<br/>      fail_tasks_on_lob_truncation = optional(bool)<br/>      heartbeat_enable             = optional(bool)<br/>      heartbeat_frequency          = optional(number)<br/>    }))<br/>  })</pre> | n/a | yes |
+| <a name="input_source_endpoint"></a> [source\_endpoint](#input\_source\_endpoint) | Configuration for the AWS DMS source endpoint.<br/><br/>The source endpoint supports PostgreSQL and Oracle.<br/><br/>Authentication is provided through AWS Secrets Manager.<br/>The caller supplies the secret ARN and may provide an existing<br/>IAM role ARN for AWS DMS to use.<br/><br/>If no access role is supplied the module creates a least-privilege role for<br/>AWS DMS to access the source secret.<br/><br/>The module does not read or decode the secret contents itself.<br/><br/>database\_name remains explicit because it is part of the DMS endpoint<br/>configuration rather than a credential.<br/><br/>Native PostgreSQL endpoint behaviour can be configured through the optional<br/>postgres\_settings object. Other engine-specific DMS behaviour can be supplied<br/>through extra\_connection\_attributes where required without embedding<br/>Data Hub specific assumptions into this module. | <pre>object({<br/>    endpoint_id = string<br/>    engine_name = string<br/><br/>    database_name = string<br/><br/>    secrets_manager_arn             = string<br/>    secrets_manager_access_role_arn = optional(string)<br/>    secrets_manager_kms_key_arn     = optional(string)<br/><br/>    kms_key_arn     = optional(string)<br/>    certificate_arn = optional(string)<br/><br/>    ssl_mode                    = optional(string, "none")<br/>    extra_connection_attributes = optional(string)<br/><br/>    postgres_settings = optional(object({<br/>      map_boolean_as_boolean       = optional(bool)<br/>      fail_tasks_on_lob_truncation = optional(bool)<br/>      heartbeat_enable             = optional(bool)<br/>      heartbeat_frequency          = optional(number)<br/>    }))<br/><br/>    oracle_settings = optional(object({<br/>      secrets_manager_oracle_asm_secret_arn  = string<br/>      secrets_manager_oracle_asm_kms_key_arn = optional(string)<br/>    }))<br/>  })</pre> | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to resources created by this module. | `map(string)` | `{}` | no |
+| <a name="input_task_logging"></a> [task\_logging](#input\_task\_logging) | CloudWatch logging configuration for DMS replication tasks.<br/><br/>AWS DMS writes task logs to the log group:<br/>dms-tasks-<replication-instance-id><br/><br/>This module manages that log group and its retention when logging is enabled<br/>and at least one replication task is configured.<br/><br/>The account-level dms-cloudwatch-logs-role remains an external prerequisite<br/>and is intentionally not created by this module.<br/><br/>log\_components maps DMS component identifiers to logging severity.<br/>LOGGER\_SEVERITY\_DEFAULT is recommended for normal operation. | <pre>object({<br/>    enabled           = optional(bool, true)<br/>    retention_in_days = optional(number, 30)<br/>    kms_key_arn       = optional(string)<br/><br/>    log_components = optional(map(string), {<br/>      METADATA_MANAGER = "LOGGER_SEVERITY_DEFAULT"<br/>      SORTER           = "LOGGER_SEVERITY_DEFAULT"<br/>      SOURCE_CAPTURE   = "LOGGER_SEVERITY_DEFAULT"<br/>      SOURCE_UNLOAD    = "LOGGER_SEVERITY_DEFAULT"<br/>      TABLES_MANAGER   = "LOGGER_SEVERITY_DEFAULT"<br/>      TARGET_APPLY     = "LOGGER_SEVERITY_DEFAULT"<br/>      TARGET_LOAD      = "LOGGER_SEVERITY_DEFAULT"<br/>      TASK_MANAGER     = "LOGGER_SEVERITY_DEFAULT"<br/>    })<br/>  })</pre> | `{}` | no |
 | <a name="input_vpc_id"></a> [vpc\_id](#input\_vpc\_id) | VPC in which the DMS replication infrastructure is deployed. | `string` | n/a | yes |
 
 ## Outputs
@@ -381,6 +408,7 @@ No modules.
 | <a name="output_replication_security_group_id"></a> [replication\_security\_group\_id](#output\_replication\_security\_group\_id) | ID of the security group created by this module for the DMS replication instance. |
 | <a name="output_replication_security_group_ids"></a> [replication\_security\_group\_ids](#output\_replication\_security\_group\_ids) | Security group IDs attached to the DMS replication instance. |
 | <a name="output_replication_subnet_group_id"></a> [replication\_subnet\_group\_id](#output\_replication\_subnet\_group\_id) | ID of the DMS replication subnet group used by the replication instance. |
+| <a name="output_replication_task_log_group"></a> [replication\_task\_log\_group](#output\_replication\_task\_log\_group) | CloudWatch log group managed for DMS replication tasks, or null when task logging is disabled or no tasks are configured. |
 | <a name="output_replication_tasks"></a> [replication\_tasks](#output\_replication\_tasks) | DMS replication task identifiers exposed for downstream orchestration and monitoring. |
 | <a name="output_s3_target_service_access_role_arn"></a> [s3\_target\_service\_access\_role\_arn](#output\_s3\_target\_service\_access\_role\_arn) | ARN of the IAM role used by AWS DMS to access the S3 target. |
 | <a name="output_source_endpoint_arn"></a> [source\_endpoint\_arn](#output\_source\_endpoint\_arn) | ARN of the DMS source endpoint. |
