@@ -1,18 +1,7 @@
 locals {
-  task_logging_settings = merge(
-    {
-      EnableLogging  = var.task_logging.enabled
-      DeleteTaskLogs = false
-    },
-    var.task_logging.enabled ? {
-      LogComponents = [
-        for component in sort(keys(var.task_logging.log_components)) : {
-          Id       = component
-          Severity = var.task_logging.log_components[component]
-        }
-      ]
-    } : {}
-  )
+  task_logging_settings = {
+    EnableLogging = var.task_logging.enabled
+  }
 
   replication_task_settings = {
     for key, task in var.replication_tasks : key => jsonencode(merge(
