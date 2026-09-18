@@ -502,25 +502,14 @@ variable "task_logging" {
     The account-level dms-cloudwatch-logs-role remains an external prerequisite
     and is intentionally not created by this module.
 
-    log_components maps DMS component identifiers to logging severity.
-    LOGGER_SEVERITY_DEFAULT is recommended for normal operation.
+    The module configures whether task logging is enabled. AWS DMS retains its
+    default logging components and LOGGER_SEVERITY_DEFAULT severities.
   EOT
 
   type = object({
     enabled           = optional(bool, true)
     retention_in_days = optional(number, 30)
     kms_key_arn       = optional(string)
-
-    log_components = optional(map(string), {
-      METADATA_MANAGER = "LOGGER_SEVERITY_DEFAULT"
-      SORTER           = "LOGGER_SEVERITY_DEFAULT"
-      SOURCE_CAPTURE   = "LOGGER_SEVERITY_DEFAULT"
-      SOURCE_UNLOAD    = "LOGGER_SEVERITY_DEFAULT"
-      TABLES_MANAGER   = "LOGGER_SEVERITY_DEFAULT"
-      TARGET_APPLY     = "LOGGER_SEVERITY_DEFAULT"
-      TARGET_LOAD      = "LOGGER_SEVERITY_DEFAULT"
-      TASK_MANAGER     = "LOGGER_SEVERITY_DEFAULT"
-    })
   })
 
   default = {}
@@ -542,32 +531,6 @@ variable "task_logging" {
     )
 
     error_message = "task_logging.kms_key_arn must be null or a non-empty ARN."
-  }
-
-  validation {
-    condition = (
-      !var.task_logging.enabled
-      ||
-      length(var.task_logging.log_components) > 0
-    )
-
-    error_message = "task_logging.log_components must contain at least one component when logging is enabled."
-  }
-
-  validation {
-    condition = alltrue([
-      for severity in values(var.task_logging.log_components) :
-      contains([
-        "LOGGER_SEVERITY_ERROR",
-        "LOGGER_SEVERITY_WARNING",
-        "LOGGER_SEVERITY_INFO",
-        "LOGGER_SEVERITY_DEFAULT",
-        "LOGGER_SEVERITY_DEBUG",
-        "LOGGER_SEVERITY_DETAILED_DEBUG"
-      ], severity)
-    ])
-
-    error_message = "task_logging.log_components values must contain a supported AWS DMS logging severity."
   }
 }
 

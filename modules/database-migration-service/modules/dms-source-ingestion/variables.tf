@@ -521,8 +521,8 @@ variable "task_logging" {
   description = <<-EOT
     CloudWatch logging configuration for DMS replication tasks.
 
-    Logging is enabled by default with 30-day retention and operational DMS
-    components set to LOGGER_SEVERITY_DEFAULT.
+    Logging is enabled by default with 30-day retention. AWS DMS retains its
+    default logging components and LOGGER_SEVERITY_DEFAULT severities.
 
     The account-level dms-cloudwatch-logs-role must already exist.
   EOT
@@ -531,17 +531,6 @@ variable "task_logging" {
     enabled           = optional(bool, true)
     retention_in_days = optional(number, 30)
     kms_key_arn       = optional(string)
-
-    log_components = optional(map(string), {
-      METADATA_MANAGER = "LOGGER_SEVERITY_DEFAULT"
-      SORTER           = "LOGGER_SEVERITY_DEFAULT"
-      SOURCE_CAPTURE   = "LOGGER_SEVERITY_DEFAULT"
-      SOURCE_UNLOAD    = "LOGGER_SEVERITY_DEFAULT"
-      TABLES_MANAGER   = "LOGGER_SEVERITY_DEFAULT"
-      TARGET_APPLY     = "LOGGER_SEVERITY_DEFAULT"
-      TARGET_LOAD      = "LOGGER_SEVERITY_DEFAULT"
-      TASK_MANAGER     = "LOGGER_SEVERITY_DEFAULT"
-    })
   })
 
   default = {}
@@ -563,32 +552,6 @@ variable "task_logging" {
     )
 
     error_message = "task_logging.kms_key_arn must be null or a non-empty ARN."
-  }
-
-  validation {
-    condition = (
-      !var.task_logging.enabled
-      ||
-      length(var.task_logging.log_components) > 0
-    )
-
-    error_message = "task_logging.log_components must contain at least one component when logging is enabled."
-  }
-
-  validation {
-    condition = alltrue([
-      for severity in values(var.task_logging.log_components) :
-      contains([
-        "LOGGER_SEVERITY_ERROR",
-        "LOGGER_SEVERITY_WARNING",
-        "LOGGER_SEVERITY_INFO",
-        "LOGGER_SEVERITY_DEFAULT",
-        "LOGGER_SEVERITY_DEBUG",
-        "LOGGER_SEVERITY_DETAILED_DEBUG"
-      ], severity)
-    ])
-
-    error_message = "task_logging.log_components values must contain a supported AWS DMS logging severity."
   }
 }
 
