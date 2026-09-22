@@ -199,9 +199,13 @@ variable "source_endpoint" {
 
     postgres may only be supplied for PostgreSQL sources.
 
+    For Oracle sources, engine-specific DMS options required for LogMiner or
+    Binary Reader can be supplied through extra_connection_attributes.
+
     oracle may only be supplied for Oracle sources. Oracle ASM credentials are
-    represented by a separate Secrets Manager reference where Binary Reader
-    requires ASM access.
+    represented by separate Secrets Manager and optional KMS key references.
+    The ASM configuration is optional and should only be supplied when the
+    selected Binary Reader configuration requires ASM access.
   EOT
 
   type = object({
@@ -233,6 +237,16 @@ variable "source_endpoint" {
   validation {
     condition     = contains(["oracle", "postgres"], var.source_endpoint.engine)
     error_message = "source_endpoint.engine must be either 'oracle' or 'postgres'."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.extra_connection_attributes == null
+      ? true
+      : length(trimspace(var.source_endpoint.extra_connection_attributes)) > 0
+    )
+
+    error_message = "source_endpoint.extra_connection_attributes must be null or a non-empty string."
   }
 
   validation {

@@ -150,6 +150,10 @@ not need to supply `oracle_settings`.
 Other engine-specific DMS connection behaviour can be supplied using
 `extra_connection_attributes` where required.
 
+The contents of `extra_connection_attributes` are passed directly to AWS DMS.
+The caller is responsible for selecting attributes supported by its Oracle
+version, DMS engine version and chosen CDC mechanism.
+
 Optional endpoint KMS and certificate references can also be supplied when they
 are needed by the source configuration.
 
