@@ -227,9 +227,15 @@ variable "source_endpoint" {
     configuration rather than a credential.
 
     Native PostgreSQL endpoint behaviour can be configured through the optional
-    postgres_settings object. Other engine-specific DMS behaviour can be supplied
-    through extra_connection_attributes where required without embedding
-    Data Hub specific assumptions into this module.
+    postgres_settings object.
+
+    Oracle LogMiner or Binary Reader behaviour can be supplied through
+    extra_connection_attributes. Optional Oracle ASM credential references can be
+    supplied through oracle_settings when the selected Binary Reader configuration
+    requires ASM access.
+
+    The module deliberately exposes these AWS DMS settings without embedding
+    service-specific or environment-specific assumptions.
   EOT
 
   type = object({
@@ -264,6 +270,16 @@ variable "source_endpoint" {
   validation {
     condition     = contains(["oracle", "postgres"], var.source_endpoint.engine_name)
     error_message = "source_endpoint.engine_name must be either 'oracle' or 'postgres'."
+  }
+
+  validation {
+    condition = (
+      var.source_endpoint.extra_connection_attributes == null
+      ? true
+      : length(trimspace(var.source_endpoint.extra_connection_attributes)) > 0
+    )
+
+    error_message = "source_endpoint.extra_connection_attributes must be null or a non-empty string."
   }
 
   validation {
