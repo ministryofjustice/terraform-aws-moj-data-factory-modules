@@ -3,6 +3,9 @@ import hashlib
 import boto3
 import urllib.parse
 import uuid
+from logger import get_logger
+
+logger = get_logger('schema-registration')
 
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
@@ -21,6 +24,13 @@ def lambda_handler(event, context):
             event_time = record['eventTime']
             bucket_name = record['s3']['bucket']['name']
 
+            logger.info("Schema registration started.",
+                extra={
+                    'execution_id': context.aws_request_id,
+                    'object_key': object_key
+                }
+            )
+
             s3_response = s3.get_object(Bucket=bucket_name, Key=object_key)
             file_bytes = s3_response['Body'].read()
 
@@ -29,11 +39,11 @@ def lambda_handler(event, context):
 
             metadata = read_avsc_metadata(file_bytes)
             # breaking metadata down into local variables for cleaner use
-            source_name = metadata["source"]
-            schema_name = metadata["schema_name"]
-            db_name = metadata["database_name"]
-            table_name = metadata["table_name"]
-            version = metadata["contract_version"]
+            source_name = metadata["namespace"]
+            schema_name = metadata["service"]
+            db_name = metadata["database"]["name"]
+            table_name = metadata["name"]
+            version = metadata["version"]
 
             contract_uri = f"s3://data-factory-moj-development-schema-registry/{source_name}/{db_name}/{schema_name}/{table_name}/{version}/{object_key}"
             
@@ -50,6 +60,13 @@ def lambda_handler(event, context):
                     's3_contract_uri': contract_uri
                 }
             )
+
+            logger.info(f"Schema registration successful.",
+                extra={
+                    'execution_id': context.aws_request_id,
+                    'contract_uri': contract_uri,
+                }
+            )
             
         return {
             'statusCode': 200,
@@ -57,7 +74,11 @@ def lambda_handler(event, context):
         }
         
     except Exception as e:
-        print(f"Error processing S3 event: {str(e)}")
+        logger.error(f"Error registering schema: {str(e)}",
+            extra={
+                'execution_id': context.aws_request_id
+            }
+        )
         return {
             'statusCode': 500,
             'body': json.dumps(f"Error: {str(e)}")
