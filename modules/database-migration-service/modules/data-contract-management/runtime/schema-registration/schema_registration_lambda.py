@@ -4,13 +4,15 @@ import boto3
 import urllib.parse
 import uuid
 from logger import get_logger
+from datetime import datetime, timezone
 
 logger = get_logger('schema-registration')
 
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
 
-audit_table = dynamodb.Table('contract_lifecycle_audit')
+# TODO: Make this table name an environment variable so that it can be changed without code changes
+audit_table = dynamodb.Table('contract_lifecycle_audit_2')
 
 def read_avsc_metadata(content):
     decoded_content = content.decode('utf-8')
@@ -21,8 +23,8 @@ def lambda_handler(event, context):
         # Loop is required because AWS passes S3 records inside a list wrapper
         for record in event['Records']:
             object_key = urllib.parse.unquote_plus(record['s3']['object']['key'])
-            event_time = record['eventTime']
             bucket_name = record['s3']['bucket']['name']
+            
 
             logger.info("Schema registration started.",
                 extra={
@@ -38,18 +40,27 @@ def lambda_handler(event, context):
             entry_id = str(uuid.uuid4())
 
             metadata = read_avsc_metadata(file_bytes)
+
+            required_keys = ["source", "schema_name", "database_name", "table_name", "version"]
+            missing_keys = [key for key in required_keys if key not in metadata]
+
+            if missing_keys:
+                raise ValueError(f"Missing required metadata fields: {', '.join(missing_keys)}")
+
             # breaking metadata down into local variables for cleaner use
-            source_name = metadata["namespace"]
-            schema_name = metadata["service"]
-            db_name = metadata["database"]["name"]
-            table_name = metadata["name"]
+            source_name = metadata["source"]
+            schema_name = metadata["schema_name"]
+            db_name = metadata["database_name"]
+            table_name = metadata["table_name"]
             version = metadata["version"]
 
             contract_uri = f"s3://data-factory-moj-development-schema-registry/{source_name}/{db_name}/{schema_name}/{table_name}/{version}/{object_key}"
             
+            event_time = datetime.now(timezone.utc).isoformat()
+            
             audit_table.put_item(
                 Item={
-                    'audit-entry-id': entry_id,
+                    'contract_id': entry_id,
                     'registered_at': event_time,
                     'contract_version': version,
                     'source_name': source_name,
