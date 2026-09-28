@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 import boto3
 import urllib.parse
 import uuid
@@ -11,8 +12,12 @@ logger = get_logger('schema-registration')
 s3 = boto3.client('s3')
 dynamodb = boto3.resource('dynamodb')
 
-# TODO: Make this table name an environment variable so that it can be changed without code changes
-audit_table = dynamodb.Table('contract_lifecycle_audit_2')
+AUDIT_TABLE_NAME = os.environ.get(
+    "AUDIT_TABLE_NAME",
+    "contract_lifecycle_audit_2" # default value linking to the testing DynamoDB table
+)
+
+audit_table = dynamodb.Table(AUDIT_TABLE_NAME)
 
 def read_avsc_metadata(content):
     decoded_content = content.decode('utf-8')
