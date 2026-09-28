@@ -24,7 +24,6 @@ def lambda_handler(event, context):
         for record in event['Records']:
             object_key = urllib.parse.unquote_plus(record['s3']['object']['key'])
             bucket_name = record['s3']['bucket']['name']
-            
 
             logger.info("Schema registration started.",
                 extra={
@@ -54,7 +53,7 @@ def lambda_handler(event, context):
             table_name = metadata["table_name"]
             version = metadata["version"]
 
-            contract_uri = f"s3://data-factory-moj-development-schema-registry/{source_name}/{db_name}/{schema_name}/{table_name}/{version}/{object_key}"
+            contract_uri = f"s3://{bucket_name}/{source_name}/{db_name}/{schema_name}/{table_name}/{version}/{object_key}"
             
             event_time = datetime.now(timezone.utc).isoformat()
             
