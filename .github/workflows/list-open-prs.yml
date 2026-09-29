@@ -1,0 +1,24 @@
+name: List Open Prs
+
+on:
+  schedule:
+    - cron: 0 7 * * *
+
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run in dry-run mode (skip Slack alert)?"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  list-open-prs:
+    uses: ministryofjustice/data-engineering-github-actions/.github/workflows/reusable-list-open-prs.yml@main
+    with:
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' || false }}
+    secrets:
+      slack_workflow_url: ${{ secrets.SLACK_WEBHOOK_URL }}
