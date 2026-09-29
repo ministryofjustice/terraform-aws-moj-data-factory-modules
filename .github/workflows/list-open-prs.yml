@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   list-open-prs:
-    uses: ministryofjustice/data-engineering-github-actions/.github/workflows/reusable-list-open-prs.yml@4d0e513
+    uses: ministryofjustice/data-engineering-github-actions/.github/workflows/reusable-list-open-prs.yml@4d0e513a178e9b5938704ec454923e69817c9ac5
     with:
       dry_run: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true' || false }}
     secrets:
