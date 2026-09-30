@@ -150,22 +150,6 @@ def lambda_handler(event, context):
 
             event_time = datetime.now(timezone.utc).isoformat()
 
-            logger.info(f"""schema_fingerprint :::{schema_fingerprint} 
-                        contract_uri  ::: {contract_uri}
-                        contract_id :::: {contract_id}
-                        event_time :::: {event_time}
-                        source_name :::: {source_name}
-                        schema_name :::: {schema_name}
-                        db_name :::: {db_name}
-                        table_name :::: {table_name}
-                        contract_version :::: {contract_version}""",
-                extra={
-                    'execution_id': context.aws_request_id
-                }
-            )
-            
-            audit_table.put_item(
-                Item={
             logger.info(f"contract_uri  ::: {contract_uri} , contract_id :::: {contract_id}")
 
             ''' If write succeeds → new version.
@@ -244,3 +228,4 @@ def lambda_handler(event, context):
                 f"Contract version '{contract_version}' already exists for contract_id '{contract_id}' but has a different "
                 f"schema fingerprint. Please register a new contract version."
             )
+
