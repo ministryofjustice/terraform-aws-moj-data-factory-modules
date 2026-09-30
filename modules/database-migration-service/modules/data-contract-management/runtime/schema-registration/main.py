@@ -59,9 +59,11 @@ def lambda_handler(event, context):
 
             contract_uri = f"s3://{bucket_name}/{source_name}/{db_name}/{schema_name}/{table_name}/{contract_version}/{file_name}"
            
-            logger.info(f"contract_uri  ::: {contract_uri}")
-            entry_id = str(uuid.uuid4())
+            contract_id = str(uuid.uuid5(uuid.NAMESPACE_DNS,f"{source_name}:{schema_name}:{db_name}:{table_name}"))
+
             event_time = datetime.now(timezone.utc).isoformat()
+
+            logger.info(f"contract_uri  ::: {contract_uri} , contract_id :::: {contract_id}")
             
             audit_table.put_item(
                 Item={
