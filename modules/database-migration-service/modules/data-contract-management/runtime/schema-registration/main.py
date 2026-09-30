@@ -67,7 +67,7 @@ def lambda_handler(event, context):
             
             audit_table.put_item(
                 Item={
-                    'contract_id': entry_id,
+                    'contract_id': contract_id,
                     'registered_at': event_time,
                     'contract_version': contract_version,
                     'source_name': source_name,
