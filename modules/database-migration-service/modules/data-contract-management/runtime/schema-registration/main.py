@@ -33,15 +33,11 @@ def lambda_handler(event, context):
                     'object_key': object_key
                 }
             )
-            logger.info(f"changes 1111111111")
             s3_response = s3.get_object(Bucket=bucket_name, Key=object_key)
             file_bytes = s3_response["Body"].read()
             metadata = json.loads(file_bytes.decode("utf-8"))
             canonical_schema = to_parsing_canonical_form(metadata)
             schema_fingerprint = hashlib.sha256(canonical_schema.encode("utf-8")).hexdigest()
-
-            logger.info(f"schema_fingerprint :::{schema_fingerprint}")
- 
 
             required_keys = ["source", "schema_name", "database_name", "table_name", "contract_version"]
             missing_keys = [key for key in required_keys if key not in metadata]
@@ -63,7 +59,19 @@ def lambda_handler(event, context):
 
             event_time = datetime.now(timezone.utc).isoformat()
 
-            logger.info(f"contract_uri  ::: {contract_uri} , contract_id :::: {contract_id}")
+            logger.info(f"""schema_fingerprint :::{schema_fingerprint} , 
+                        contract_uri  ::: {contract_uri} , 
+                        contract_id :::: {contract_id}, 
+                        event_time :::: {event_time} ,
+                        source_name :::: {source_name} ,
+                        schema_name :::: {schema_name} ,
+                        db_name :::: {db_name} ,
+                        table_name :::: {table_name} ,
+                        contract_version :::: {contract_version}""",
+                extra={
+                    'execution_id': context.aws_request_id
+                }
+            )
             
             audit_table.put_item(
                 Item={
@@ -82,8 +90,7 @@ def lambda_handler(event, context):
 
             logger.info(f"Schema registration successful.",
                 extra={
-                    'execution_id': context.aws_request_id,
-                    'contract_uri': contract_uri,
+                    'execution_id': context.aws_request_id
                 }
             )
             
