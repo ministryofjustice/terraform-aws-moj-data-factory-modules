@@ -20,7 +20,6 @@ class JsonFormatter(logging.Formatter):
                 "type": str(record.exc_info[0]),
                 "message": str(record.exc_info[1]),
                 "traceback": self.formatException(record.exc_info),
-                "stack_trace": self.formatStack(record.exc_info),
             }
         return json.dumps(log_record)
  

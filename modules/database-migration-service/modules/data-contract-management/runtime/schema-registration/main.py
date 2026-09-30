@@ -40,7 +40,7 @@ def lambda_handler(event, context):
             schema_fingerprint = hashlib.sha256(canonical_schema.encode("utf-8")).hexdigest()
 
             required_keys = ["source", "schema_name", "database_name", "table_name", "contract_version"]
-            missing_keys = [key for key in required_keys if key not in metadata]
+            missing_keys = [key for key in required_keys if key not in metadata or metadata[key] is None or metadata[key] == ""]
 
             if missing_keys:
                 raise ValueError(f"Missing required metadata fields: {', '.join(missing_keys)}")
@@ -59,14 +59,14 @@ def lambda_handler(event, context):
 
             event_time = datetime.now(timezone.utc).isoformat()
 
-            logger.info(f"""schema_fingerprint :::{schema_fingerprint} , 
-                        contract_uri  ::: {contract_uri} , 
-                        contract_id :::: {contract_id}, 
-                        event_time :::: {event_time} ,
-                        source_name :::: {source_name} ,
-                        schema_name :::: {schema_name} ,
-                        db_name :::: {db_name} ,
-                        table_name :::: {table_name} ,
+            logger.info(f"""schema_fingerprint :::{schema_fingerprint} 
+                        contract_uri  ::: {contract_uri}
+                        contract_id :::: {contract_id}
+                        event_time :::: {event_time}
+                        source_name :::: {source_name}
+                        schema_name :::: {schema_name}
+                        db_name :::: {db_name}
+                        table_name :::: {table_name}
                         contract_version :::: {contract_version}""",
                 extra={
                     'execution_id': context.aws_request_id
@@ -107,7 +107,4 @@ def lambda_handler(event, context):
                 'execution_id': context.aws_request_id
             }
         )
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f"Error: {str(e)}")
-        }
+        raise e
