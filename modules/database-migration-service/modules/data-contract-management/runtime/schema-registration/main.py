@@ -86,7 +86,7 @@ def lambda_handler(event, context):
                     'table_name': table_name,
                     'schema_fingerprint': schema_fingerprint,
                     's3_contract_uri': contract_uri,
-                    'is_active': "no"
+                    'is_active': False
                 }
             )
 
