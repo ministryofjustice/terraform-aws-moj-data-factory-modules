@@ -6,6 +6,7 @@ import urllib.parse
 import uuid
 from logger import get_logger
 from datetime import datetime, timezone
+from fastavro.schema import to_parsing_canonical_form
 
 logger = get_logger('schema-registration')
 
@@ -18,10 +19,6 @@ AUDIT_TABLE_NAME = os.environ.get(
 )
 
 audit_table = dynamodb.Table(AUDIT_TABLE_NAME)
-
-def read_avsc_metadata(content):
-    decoded_content = content.decode('utf-8')
-    return json.loads(decoded_content)
 
 def lambda_handler(event, context):
     try:
@@ -36,16 +33,17 @@ def lambda_handler(event, context):
                     'object_key': object_key
                 }
             )
-
+            logger.info(f"changes 1111111111")
             s3_response = s3.get_object(Bucket=bucket_name, Key=object_key)
-            file_bytes = s3_response['Body'].read()
+            file_bytes = s3_response["Body"].read()
+            metadata = json.loads(file_bytes.decode("utf-8"))
+            canonical_schema = to_parsing_canonical_form(metadata)
+            schema_fingerprint = hashlib.sha256(canonical_schema.encode("utf-8")).hexdigest()
 
-            schema_hash = hashlib.sha256(file_bytes).hexdigest()
-            entry_id = str(uuid.uuid4())
+            logger.info(f"schema_fingerprint :::{schema_fingerprint}")
+ 
 
-            metadata = read_avsc_metadata(file_bytes)
-
-            required_keys = ["source", "schema_name", "database_name", "table_name", "version"]
+            required_keys = ["source", "schema_name", "database_name", "table_name", "contract_version"]
             missing_keys = [key for key in required_keys if key not in metadata]
 
             if missing_keys:
@@ -56,23 +54,27 @@ def lambda_handler(event, context):
             schema_name = metadata["schema_name"]
             db_name = metadata["database_name"]
             table_name = metadata["table_name"]
-            version = metadata["version"]
+            contract_version = metadata["contract_version"]
+            file_name = os.path.basename(object_key)
 
-            contract_uri = f"s3://{bucket_name}/{source_name}/{db_name}/{schema_name}/{table_name}/{version}/{object_key}"
-            
+            contract_uri = f"s3://{bucket_name}/{source_name}/{db_name}/{schema_name}/{table_name}/{contract_version}/{file_name}"
+           
+            logger.info(f"contract_uri  ::: {contract_uri}")
+            entry_id = str(uuid.uuid4())
             event_time = datetime.now(timezone.utc).isoformat()
             
             audit_table.put_item(
                 Item={
                     'contract_id': entry_id,
                     'registered_at': event_time,
-                    'contract_version': version,
+                    'contract_version': contract_version,
                     'source_name': source_name,
                     'schema_name': schema_name,
                     'db_name': db_name,
                     'table_name': table_name,
-                    'schema_footprint': schema_hash,
-                    's3_contract_uri': contract_uri
+                    'schema_fingerprint': schema_fingerprint,
+                    's3_contract_uri': contract_uri,
+                    'is_active': "no"
                 }
             )
 
