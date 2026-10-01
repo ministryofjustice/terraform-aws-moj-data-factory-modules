@@ -146,7 +146,6 @@ def lambda_handler(event, context):
 
             contract_uri = f"s3://{bucket_name}/{object_key}"
            
-            #contract_id = str(uuid.uuid5(uuid.NAMESPACE_DNS,f"{source_name}:{schema_name}:{db_name}:{table_name}:{}"))
             contract_id = str(uuid.uuid5(uuid.NAMESPACE_DNS,f"{object_key}"))
 
             event_time = datetime.now(timezone.utc).isoformat()
