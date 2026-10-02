@@ -109,11 +109,8 @@ def validate_required_metadata(metadata: dict) -> None:
             f"{', '.join(invalid_keys)}"
         )
 
-def lambda_handler(event, context):
-    try:
-        # Loop is required because AWS passes S3 records inside a list wrapper
-        for record in event['Records']:
-            object_key = urllib.parse.unquote_plus(record['s3']['object']['key'])
+def process_record(record, context):
+     object_key = urllib.parse.unquote_plus(record['s3']['object']['key'])
             bucket_name = record['s3']['bucket']['name']
 
             logger.info("Schema registration started.",
@@ -146,7 +143,7 @@ def lambda_handler(event, context):
 
             contract_uri = f"s3://{bucket_name}/{object_key}"
            
-            contract_id = str(uuid.uuid5(uuid.NAMESPACE_DNS,f"{object_key}"))
+            contract_id = str(uuid.uuid5(uuid.NAMESPACE_DNS,f"{source_name}:{db_name}:{schema_name}:{table_name}"))
 
             event_time = datetime.now(timezone.utc).isoformat()
 
@@ -173,59 +170,72 @@ def lambda_handler(event, context):
                     's3_contract_uri': contract_uri,
                     'is_active': False
                 }
-            
-            audit_table.put_item(
+            try:
+                 audit_table.put_item(
                 Item=item,
                 ConditionExpression="""
                     attribute_not_exists(contract_id)
                     AND attribute_not_exists(contract_version)
                     """
-            )
+                    )
 
-            logger.info(
-                "New contract version registered",
-                extra={
-                "execution_id": context.aws_request_id,
-                "contract_id": contract_id,
-                "contract_version": contract_version
+                    logger.info(
+                        "New contract version registered",
+                        extra={
+                        "execution_id": context.aws_request_id,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version
+                        }
+                    )
+
+                return {
+                    'statusCode': 200,
+                    'body': json.dumps('Successfully entered the schema into the DynamoDB audit table.')
                 }
-            )
-
-        return {
-            'statusCode': 200,
-            'body': json.dumps('Successfully entered the schema into the DynamoDB audit table.')
-        }
         
-    except ClientError as e:
+            except ClientError as e:
 
-        if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
-            logger.exception(
-                f"Unexpected DynamoDB error while registering contract {contract_id} version {contract_version}"
+                if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
+                    logger.exception(
+                        f"Unexpected DynamoDB error while registering contract {contract_id} version {contract_version}"
+                        )
+                    raise
+                
+                response = audit_table.get_item(
+                    Key={
+                        "contract_id": contract_id,
+                        "contract_version": contract_version
+                    },
+                    ConsistentRead=True
                 )
-            raise
-        
-        existing = audit_table.get_item(
-            Key={
-                "contract_id": contract_id,
-                "contract_version": contract_version
-                }
-        ).get("Item")
-        
-        if existing["schema_fingerprint"] == schema_fingerprint:
-            logger.info(
-            "Contract version already registered with same fingerprint.",
-             extra={
-                "execution_id": context.aws_request_id,
-                "contract_id": contract_id,
-                "contract_version": contract_version
-                }
-            )
-        
-        else:
+                existing = response.get("Item")
+                
+                if existing["schema_fingerprint"] == schema_fingerprint:
+                    logger.info(
+                    "Contract version already registered with same fingerprint.",
+                    extra={
+                        "execution_id": context.aws_request_id,
+                        "contract_id": contract_id,
+                        "contract_version": contract_version
+                        }
+                    )
+                
+                else:
 
-            suggested_version = increment_contract_version(contract_version)
-            raise ValueError(
-                f"Contract version '{contract_version}' already exists for contract_id '{contract_id}' but has a different "
-                f"schema fingerprint. Please register a new contract version."
-            )
+                    suggested_version = increment_contract_version(contract_version)
+                    raise ValueError(
+                        f"Contract version '{contract_version}' already exists for contract_id '{contract_id}' but has a different "
+                        f"schema fingerprint. Please register a new contract version."
+                    )
 
+def lambda_handler(event, context):
+    for record in event["Records"]:
+        process_record(record, context)
+
+    return {
+        "statusCode": 200,
+        "body": json.dumps(
+        "Successfully processed all schema records."
+        )
+    }
+           
