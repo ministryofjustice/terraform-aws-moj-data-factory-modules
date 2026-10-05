@@ -1,100 +1,111 @@
 # Schema registration
 
-Deploys the container-based schema registration Lambda and its supporting
-resources. The runtime is maintained separately under
-`../../runtime/schema-registration/`.
+This module deploys the schema registration Lambda and the AWS resources it
+needs. The Lambda code lives in `../../runtime/schema-registration/`.
 
-## Responsibilities
+## What it creates
 
-This module creates:
-
-- A contract registration DynamoDB table.
-- The registration Lambda and execution role.
-- Scoped S3, DynamoDB, logging and KMS permissions.
+- A DynamoDB table for registered contract versions.
+- The registration Lambda and its execution role.
+- Permissions to read the configured S3 objects, write registration records,
+  use the required encryption keys and write logs.
 - An encrypted CloudWatch log group.
-- An encrypted asynchronous failure queue.
-- Operational alarms.
+- An encrypted queue for failed asynchronous invocations.
+- Alarms to help us spot failures and throttling.
 
-It does not generate or validate contracts, allocate versions, activate
-contracts, provision DMS, create source databases or configure S3 notifications.
+Schema generation and validation are handled by their own components.
+Registration records the permitted contract version; it does not allocate
+versions or activate contracts.
 
-## Consumer prerequisites
+DMS, source databases and S3 triggers are configured separately.
 
-The consumer supplies:
+## What you need to provide
 
-- A unique resource name.
-- A published ECR image digest matching the selected architecture.
-- Allowed S3 object ARNs or prefix patterns.
-- Required encryption-key references and key policies.
-- Alarm action ARNs if notifications are required.
+When calling this module, provide:
 
-The image repository must permit Lambda image retrieval. Cross-account image
-and contract access also require policies in the resource-owning account.
+- A unique name for the resources.
+- A published ECR image URI pinned to a digest.
+- The architecture matching that image.
+- The S3 objects or prefixes the Lambda is allowed to read.
+- The required encryption-key references.
+- Alarm action ARNs if notifications are needed.
 
-The CloudWatch Logs key policy must permit the regional Logs service to use
-the key for this log group.
+The ECR repository must allow Lambda to retrieve the image. If images or
+contracts are in another account, that account must also allow access.
 
-No VPC attachment is required by this implementation.
+The CloudWatch Logs encryption key must allow the regional Logs service to
+use it for this log group.
 
-## Contract table
+This Lambda does not need a VPC connection.
 
-Partition key: `contract_id` (String).
+## DynamoDB table
 
-Sort key: `contract_version` (String).
+The table uses:
 
-The table uses on-demand capacity, customer-managed encryption, point-in-time
+- `contract_id` as the partition key.
+- `contract_version` as the sort key.
+
+It has on-demand capacity, customer-managed encryption, point-in-time
 recovery and configurable deletion protection.
 
-Each item represents one registered contract version, including its original
-registration details. This is not a separate append-only audit-event table.
+Each record represents one registered contract version and keeps its original
+registration details. It does not create a separate audit row for every
+validation event or duplicate registration attempt.
 
-Versions such as `v2` and `v10` sort lexicographically. Consumers must not use
-descending string order alone to identify the latest numeric version.
+Contract versions are stored as strings, so their order is not numeric.
+For example, `v10` sorts before `v2`. Do not rely on string sorting to find
+the latest version.
 
-No TTL or indexes are created because the current registration interface
-does not require them.
+There is no TTL or secondary index because the current registration code
+does not need them.
 
-## Invocation
+## Calling the Lambda
 
-The handler currently accepts S3 notification-shaped payloads.
+The handler expects an S3 notification-shaped payload.
 
-Only contracts permitted by upstream validation should reach registration.
-The consumer owns trigger configuration and invocation permissions.
+Contracts must have passed upstream validation before reaching registration.
+The deployment calling this module is responsible for connecting the correct
+trigger and setting invocation permissions.
 
-For synchronous invocations, the caller handles returned function errors.
+For synchronous calls, the caller must check and handle Lambda errors.
 
-For asynchronous invocations, Lambda retries according to configuration and
-sends exhausted/expired invocations to the failure queue. The queue is not
-automatically replayed.
+For asynchronous calls, Lambda retries using the configured limits. Failed
+or expired invocations are sent to the failure queue for investigation.
+Messages are not automatically replayed.
 
-An SQS event source would require a separate runtime adapter and consumer
-configuration; the existing handler does not accept SQS event envelopes.
+The handler does not currently accept SQS events. Connecting an SQS trigger
+would need an adapter and the corresponding deployment configuration.
 
-## Data protection
+## Protecting contract content
 
-Registration records the S3 object version when available. Consumers must
-use that reference when retrieving the registered content.
+When available, registration stores the S3 object version alongside the URI.
+Use that version reference when reading the registered contract.
 
-Bucket versioning and retention/protection are owned by the bucket component.
-Registration conflict detection does not itself prevent S3 overwrites.
+The component managing the bucket is responsible for versioning and content
+protection. Rejecting a conflicting DynamoDB registration does not prevent
+someone overwriting an S3 object.
 
 ## Deployment
 
-Build and publish the image before applying this module.
+Build and push the image before applying this module.
 
-Changing `image_uri` to a new digest deploys the new image. Terraform does not
-build images or start ingestion.
+Update `image_uri` to the new image digest when deploying a new build.
+Terraform deploys the resources; it does not build images or start ingestion.
 
-Reserved concurrency must fit the target account's available quota.
+Check that the account has enough available concurrency for the configured
+Lambda reservation.
 
-Deletion protection must be explicitly disabled before intentionally deleting
-the table.
+To intentionally delete the table, first disable its deletion protection
+through Terraform.
 
-## Validation
+## Checks and testing
 
-Run Terraform formatting and validation, repository checks and runtime unit
-tests before deployment.
+Before deployment, run:
 
-Sandbox integration tests must verify registration, duplicate delivery,
-content conflicts, object-version references, permissions, logs and
+- Terraform formatting and validation.
+- The required repository checks.
+- The registration Lambda unit tests.
+
+After deploying in sandbox, test new registration, duplicate events,
+conflicting content, S3 object-version references, permissions, logging and
 asynchronous failure handling.
