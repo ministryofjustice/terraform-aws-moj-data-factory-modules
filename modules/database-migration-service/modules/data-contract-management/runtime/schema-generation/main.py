@@ -5,6 +5,7 @@ import uuid
 import boto3
 from sqlalchemy import create_engine, inspect
 from Logger import get_logger
+from fastavro import parse_schema
 
 
 logger = get_logger(__name__)
@@ -68,9 +69,20 @@ def convert_postgres_type(column_type):
     elif "real" in type_name or "float" in type_name:
         return "float"
     elif "numeric" in type_name or "decimal" in type_name:
-        # TODO: Confirm whether decimal precision/scale
-        # should be preserved in the contract.
-        return "double"
+        precision = column_type.precision
+        scale = column_type.scale
+
+        if precision is None:
+            raise ValueError(
+                f"Precision is required for decimal type: {column_type}"
+            )
+
+        return {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": precision,
+            "scale": scale or 0,
+        }
     elif "char" in type_name or "text" in type_name:
         return "string"
     else:
@@ -84,9 +96,23 @@ def convert_oracle_type(column_type):
     type_name = str(column_type).lower()
 
     if "number" in type_name:
-        # TODO: Confirm required handling of Oracle
-        # NUMBER precision and scale.
-        return "double"
+        precision = column_type.precision
+        scale = column_type.scale
+
+        if precision is None:
+            return "double"
+
+        if scale in (None, 0):
+            if precision <= 9:
+                return "int"
+            return "long"
+
+        return {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": precision,
+            "scale": scale,
+        }
     elif "integer" in type_name:
         return "int"
     elif "float" in type_name:
@@ -237,6 +263,12 @@ def validate_contract(contract):
             raise ValueError(
                 "Contract field is missing required field: type"
             )
+    try:
+        parse_schema(contract)
+    except Exception as error:
+        raise ValueError(
+            f"Generated contract is not a valid Avro schema: {error}"
+        ) from error
 
     return True
 

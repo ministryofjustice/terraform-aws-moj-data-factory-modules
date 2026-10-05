@@ -2,3 +2,4 @@ SQLAlchemy==2.0.43
 psycopg2-binary==2.9.10
 oracledb==2.5.1
 boto3==1.40.0
+fastavro==1.12.1
