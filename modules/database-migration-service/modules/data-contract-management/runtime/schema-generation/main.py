@@ -3,7 +3,7 @@ import os
 import re
 
 import boto3
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from fastavro.schema import parse_schema
 from botocore.exceptions import ClientError
 from urllib.parse import quote_plus
@@ -335,7 +335,7 @@ def convert_oracle_type(column_type):
 
         # Integer NUMBER types
         if scale in (None, 0):
-            if precision < = 9:
+            if precision <= 9:
                 return "int"
 
             return "long"
@@ -444,6 +444,7 @@ def get_table_metadata(inspector,schema_name: str,table_name: str,)-> tuple[list
     """
     Retrieve column and primary key metadata.
     """
+    logger.info(" Retrieving Table metadata started")
 
     if table_name not in inspector.get_table_names(schema=schema_name):
         raise ValueError(
@@ -455,6 +456,7 @@ def get_table_metadata(inspector,schema_name: str,table_name: str,)-> tuple[list
         schema=schema_name,
     )
 
+    #(f" columns --------->{columns}")
     primary_key = inspector.get_pk_constraint(
         table_name,
         schema=schema_name,
@@ -613,6 +615,7 @@ def save_contract(
     Returns:
         str: S3 object key.
     """
+
    
     object_key = (
         f"{engine_type}/"
@@ -623,17 +626,21 @@ def save_contract(
         "contract.avsc"
     )
 
-    # Verify contract does not already exist
     try:
         s3.head_object(
             Bucket=schema_registry_bucket,
             Key=object_key,
         )
 
-        raise ValueError(
-            f"Schema already exists: "
-            f"s3://{schema_registry_bucket}/{object_key}"
+        logger.warning(
+            "Contract already exists. Skipping table.",
+            extra={
+                "bucket": schema_registry_bucket,
+                "object_key": object_key,
+            },
         )
+
+        return None
 
     except ClientError as e:
         error_code = e.response["Error"]["Code"]
@@ -648,7 +655,7 @@ def save_contract(
                 "Failed checking schema existence"
             )
             raise
-
+    
     # Upload contract
     try:
         s3.put_object(
@@ -690,7 +697,6 @@ def generate_contract(
     table_name: str,
     service: str,
     schema_registry_bucket: str,
-    audit_table: str,
     contract_version: str,
     version: str,
     namespace: str,
@@ -772,11 +778,24 @@ def lambda_handler(event, context):
     namespace = config["NAMESPACE"]
     db_secret = config["DB_SECRET_ARN"]
     schema_registry = config["SCHEMA_REGISTRY_BUCKET"]
-    audit_table = config["AUDIT_TABLE_NAME"]
     contract_version = config["CONTRACT_VERSION"]
     version = config["VERSION"]
     table_list = config["TABLE_LIST"]
 
+
+    logger.info(
+        "Lambda configuration loaded",
+        extra={
+            "ENGINE": config["ENGINE"],
+            "SERVICE": config["SERVICE"],
+            "DATABASE_NAME": config["DATABASE_NAME"],
+            "SCHEMA_NAME": config["SCHEMA_NAME"],
+            "NAMESPACE": config["NAMESPACE"],
+            "TABLE_LIST": config["TABLE_LIST"],
+            "CONTRACT_VERSION": config["CONTRACT_VERSION"],
+            "VERSION": config["VERSION"],
+        },
+    )
     #Read db config form secret manager
     db_secret = get_database_secret(db_secret)
 
@@ -784,18 +803,45 @@ def lambda_handler(event, context):
     #Build db connection
     connection_url = build_database_connection(engine_type,database_name,db_secret)
 
+    #ßlogger.info(f"connection_url ------->{connection_url}")
+
     #create engine
     db_engine = create_database_engine(connection_url,engine_type, database_name)
-
-     try: 
+    #logger.info(f"db_engine ------->{db_engine}")
+    try: 
         inspector = inspect(db_engine)
+        '''
+        create_sql = """
+        CREATE TABLE IF NOT EXISTS test_customer (
+            customer_id BIGSERIAL PRIMARY KEY,
+            customer_name VARCHAR(100) NOT NULL,
+            email VARCHAR(255),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+
+       
+        with db_engine.begin() as connection:
+            connection.execute(text(create_sql))
+
+        print("Table test_customer created successfully")
+        '''
+        tables = inspector.get_table_names(schema=schema_name)
+
+        logger.info(
+            "Found %s tables in schema %s: %s",
+            len(tables),
+            schema_name,
+            ", ".join(sorted(tables)),
+        )
      
         # TABLE_LIST is supplied as a comma-separated environment value.
         generated_contracts = []
+        failed_tables = []
 
         for table_name in table_list:
-
             try:
+                logger.info(f"Table_name ----------->{table_name}")
                 result = generate_contract(
                     inspector,
                     engine_type,
@@ -804,7 +850,6 @@ def lambda_handler(event, context):
                     table_name,
                     service,
                     schema_registry,
-                    audit_table,
                     contract_version,
                     version,
                     namespace,
@@ -817,17 +862,25 @@ def lambda_handler(event, context):
                     "Failed processing table %s",
                     table_name
                 )
-                raise
+                failed_tables.append(
+                    {
+                        "table_name": table_name
+                    }
+                )
+
+                # continue with next table
+                continue
     
 
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "message": (
-                    "Schema generation completed successfully"
-                ),
-                "contracts": generated_contracts,
-            })
+            "body": json.dumps(
+                {
+                    "message": "Schema generation completed",
+                    "contracts": generated_contracts,
+                    "failed_tables": failed_tables,
+                }
+            ),
         }
 
     finally:
