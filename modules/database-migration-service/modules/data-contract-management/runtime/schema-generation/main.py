@@ -33,7 +33,6 @@ def validate_configuration():
     config = {
         "DB_SECRET_ARN": os.getenv("DB_SECRET_ARN"),
         "SCHEMA_REGISTRY_BUCKET": os.getenv("SCHEMA_REGISTRY_BUCKET"),
-        "AUDIT_TABLE_NAME": os.getenv("AUDIT_TABLE_NAME"),
         "ENGINE": os.getenv("ENGINE"),
         "NAMESPACE": os.getenv("NAMESPACE"),
         "SERVICE": os.getenv("SERVICE"),
@@ -809,6 +808,7 @@ def lambda_handler(event, context):
                     contract_version,
                     version,
                     namespace,
+                    execution_id,
                     )
                 generated_contracts.append(result)
 
