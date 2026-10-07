@@ -2,12 +2,16 @@ import json
 import os
 import re
 
+import hashlib
 import boto3
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine import URL
+from sqlalchemy import types as sql_types
+from sqlalchemy.dialects import oracle, postgresql
 from fastavro.schema import parse_schema
 from botocore.exceptions import ClientError
-from urllib.parse import quote_plus
-from Logger import get_logger
+from logger import get_logger
+from urllib.parse import quote
 
 
 logger = get_logger("schema-generation")
@@ -19,205 +23,294 @@ SUPPORTED_ENGINES = {
 "oracle",
 }
 
-def validate_configuration():
-    """
-    Validate Lambda environment configuration.
-
-    Raises:
-        ValueError: If any required configuration is missing or invalid.
-
-    Returns:
-        dict: Validated configuration values.
-    """
-
-    config = {
-        "DB_SECRET_ARN": os.getenv("DB_SECRET_ARN"),
-        "SCHEMA_REGISTRY_BUCKET": os.getenv("SCHEMA_REGISTRY_BUCKET"),
-        "ENGINE": os.getenv("ENGINE"),
-        "NAMESPACE": os.getenv("NAMESPACE"),
-        "SERVICE": os.getenv("SERVICE"),
-        "DATABASE_NAME": os.getenv("DATABASE_NAME"),
-        "SCHEMA_NAME": os.getenv("SCHEMA_NAME"),
-        "CONTRACT_VERSION": os.getenv("CONTRACT_VERSION"),
-        "VERSION": os.getenv("VERSION"),
-        "TABLE_LIST": os.getenv("TABLE_LIST")
-    }
-
-    # Validate required values exist and are not empty.
-    missing_config = [
-        name
-        for name, value in config.items()
-        if value is None or not str(value).strip()
-    ]
-
-    if missing_config:
+def validate_contacts(contacts):
+    if not isinstance(contacts, dict):
         raise ValueError(
-            f"Missing required environment variables: "
-            f"{', '.join(sorted(missing_config))}"
+            "Contract contacts must be a JSON object."
         )
 
-    # Validate engine.
-    engine = config["ENGINE"].strip().lower()
-
-    if engine not in SUPPORTED_ENGINES:
-        raise ValueError(
-            f"Unsupported ENGINE '{config['ENGINE']}'. "
-            f"Supported values are: "
-            f"{', '.join(sorted(SUPPORTED_ENGINES))}"
-        )
-
-    if not config["DB_SECRET_ARN"].startswith(
-    "arn:aws:secretsmanager:"
-    ):
-        raise ValueError("DB_SECRET_ARN must be a valid AWS Secrets Manager ARN")
-
-    # Validate identifiers.
-    identifier_fields = [
-        "NAMESPACE",
-        "SERVICE",
-        "DATABASE_NAME",
-        "SCHEMA_NAME",
-    ]
-
-    for field in identifier_fields:
-        value = config[field].strip()
-
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", value):
+    for key, value in contacts.items():
+        if (
+            not isinstance(key, str)
+            or not key.strip()
+            or key != key.strip()
+        ):
             raise ValueError(
-                f"{field} contains invalid characters. "
-                f"Allowed: letters, numbers, underscore, hyphen."
+                "Contact names must be non-empty strings "
+                "without leading or trailing whitespace."
             )
 
-    # Parse and validate table list.
-    table_list = [
-        table.strip()
-        for table in config["TABLE_LIST"].split(",")
-        if table.strip()
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+        ):
+            raise ValueError(
+                f"Contact '{key}' must contain a non-empty string "
+                "without leading or trailing whitespace."
+            )
+
+
+def validate_configuration():
+    required_names = (
+        "DB_SECRET_ARN",
+        "SCHEMA_REGISTRY_BUCKET",
+        "ENGINE",
+        "CONTRACT_NAMESPACE",
+        "CONTRACT_SERVICE",
+        "DATABASE_NAME",
+        "SCHEMA_NAME",
+        "CONTRACT_VERSION",
+        "TABLE_LIST",
+    )
+
+    config = {
+        name: os.getenv(name)
+        for name in required_names
+    }
+
+    missing_names = [
+        name
+        for name, value in config.items()
+        if value is None or not value.strip()
     ]
 
-    if not table_list:
+    if missing_names:
         raise ValueError(
-            "TABLE_LIST must contain at least one table."
+            "Missing required environment variables: "
+            + ", ".join(sorted(missing_names))
         )
 
-    invalid_tables = [
-        table
-        for table in table_list
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", table)
-    ]
+    for name, value in config.items():
+        if value != value.strip():
+            raise ValueError(
+                f"{name} must not contain leading or trailing whitespace."
+            )
 
-    if invalid_tables:
+    config["ENGINE"] = config["ENGINE"].lower()
+
+    if config["ENGINE"] not in SUPPORTED_ENGINES:
         raise ValueError(
-            f"Invalid table names in TABLE_LIST: "
-            f"{', '.join(invalid_tables)}"
+            "Unsupported ENGINE. Expected postgres or oracle."
         )
 
-    config["TABLE_LIST"] = table_list
+    if not re.fullmatch(
+        r"v[1-9][0-9]*",
+        config["CONTRACT_VERSION"],
+    ):
+        raise ValueError(
+            "Invalid CONTRACT_VERSION. Expected v1, v2, v3, etc. "
+            "Use lowercase v with no leading zeros. "
+            "v0 is reserved for future migration."
+        )
+
+    namespace_parts = config["CONTRACT_NAMESPACE"].split(".")
+
+    if not all(
+        re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", part)
+        for part in namespace_parts
+    ):
+        raise ValueError(
+            "CONTRACT_NAMESPACE must contain valid Avro identifiers "
+            "separated by dots, for example uk.gov.justice.contracts."
+        )
+
+    for name in (
+        "CONTRACT_SERVICE",
+        "DATABASE_NAME",
+        "SCHEMA_NAME",
+    ):
+        if ":" in config[name]:
+            raise ValueError(
+                f"{name} must not contain ':', because registration "
+                "uses it to separate contract identity fields."
+            )
+
+    raw_tables = config["TABLE_LIST"].split(",")
+
+    if any(not table.strip() for table in raw_tables):
+        raise ValueError(
+            "TABLE_LIST must contain comma-separated table names "
+            "without empty entries."
+        )
+
+    tables = [table.strip() for table in raw_tables]
+
+    if len(tables) != len(set(tables)):
+        raise ValueError(
+            "TABLE_LIST must not contain duplicate table names."
+        )
+
+    for table in tables:
+        if ":" in table:
+            raise ValueError(
+                f"Table name '{table}' must not contain ':', because "
+                "registration uses it to separate identity fields."
+            )
+
+    config["TABLE_LIST"] = tables
+
+    if config["ENGINE"] == "oracle":
+        service_name = os.getenv("DATABASE_SERVICE_NAME")
+        sid = os.getenv("DATABASE_SID")
+
+        for name, value in (
+            ("DATABASE_SERVICE_NAME", service_name),
+            ("DATABASE_SID", sid),
+        ):
+            if value is not None:
+                if not value.strip() or value != value.strip():
+                    raise ValueError(
+                        f"{name} must contain a non-empty value "
+                        "without leading or trailing whitespace."
+                    )
+
+        if (service_name is None) == (sid is None):
+            raise ValueError(
+                "For Oracle, configure exactly one of "
+                "DATABASE_SERVICE_NAME or DATABASE_SID."
+            )
+
+        config["DATABASE_SERVICE_NAME"] = service_name
+        config["DATABASE_SID"] = sid
+
+    raw_contacts = os.getenv("CONTRACT_CONTACTS", "{}")
+
+    try:
+        contacts = json.loads(raw_contacts)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "CONTRACT_CONTACTS must contain a valid JSON object."
+        ) from error
+
+    validate_contacts(contacts)
+    config["CONTRACT_CONTACTS"] = contacts
 
     return config
 
 
 
 def get_database_secret(db_secret_arn):
-    """
-    Retrieve and parse the database credentials stored in AWS Secrets Manager.
-
-    Returns:
-        dict: Secret contents.
-
-    Raises:
-        ValueError: Secret value is missing or invalid.
-        ClientError: AWS Secrets Manager request failed.
-    """
     secretsmanager = boto3.client("secretsmanager")
-    try:
-        response = secretsmanager.get_secret_value(
-            SecretId=db_secret_arn
-        )
 
-        secret_string = response.get("SecretString")
+    response = secretsmanager.get_secret_value(
+        SecretId=db_secret_arn
+    )
 
-        if not secret_string:
-            raise ValueError(
-                f"Secret '{db_secret_arn}' does not contain a SecretString."
-            )
+    secret_string = response.get("SecretString")
 
-        return json.loads(secret_string)
-
-    except json.JSONDecodeError as exc:
+    if not secret_string:
         raise ValueError(
-            f"Secret '{db_secret_arn}' contains invalid JSON."
-        ) from exc
-
-    except ClientError:
-        logger.exception(
-            "Failed to retrieve secret '%s'.",
-            db_secret_arn,
+            "Database secret must contain a JSON SecretString."
         )
-        raise
 
-def build_database_connection(
-    engine: str,
-    database_name: str,
-    db_secret: dict,
-) -> str:
-    required_fields = {
-        "username",
-        "password",
-        "host",
-    }
+    try:
+        secret = json.loads(secret_string)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "Database secret contains invalid JSON."
+        ) from error
 
-    missing_fields = [
+    if not isinstance(secret, dict):
+        raise ValueError(
+            "Database secret must contain a JSON object."
+        )
+
+    invalid_fields = [
         field
-        for field in required_fields
-        if not db_secret.get(field)
+        for field in ("username", "password", "host")
+        if not isinstance(secret.get(field), str)
+        or not secret[field]
     ]
 
-    if missing_fields:
+    if invalid_fields:
         raise ValueError(
-            "Database secret missing required fields: "
-            f"{', '.join(sorted(missing_fields))}"
+            "Database secret must contain non-empty strings for: "
+            + ", ".join(invalid_fields)
         )
 
-    username = quote_plus(str(db_secret["username"]))
-    password = quote_plus(str(db_secret["password"]))
-    host = db_secret["host"]
-
-    if engine == "oracle":
-        port = int(db_secret.get("port", 1521))
-        oracle_service_name = os.getenv("DATABASE_SID")
-        if not  oracle_service_name :
+    for field in ("username", "host"):
+        if (
+            not secret[field].strip()
+            or secret[field] != secret[field].strip()
+        ):
             raise ValueError(
-                "DATABASE_SID is required for Oracle."
+                f"Database secret field '{field}' must not be blank "
+                "or contain leading or trailing whitespace."
             )
 
-        return (
-            f"oracle+oracledb://{username}:{password}"
-            f"@{host}:{port}"
-            f"/?service_name={oracle_service_name}"
+    return secret
+
+def build_database_connection(config, db_secret):
+    engine = config["ENGINE"]
+
+    if engine not in SUPPORTED_ENGINES:
+        raise ValueError(
+            "Unsupported ENGINE. Expected postgres or oracle."
         )
+
+    default_port = 1521 if engine == "oracle" else 5432
+    raw_port = db_secret.get("port", default_port)
+
+    if isinstance(raw_port, bool) or not isinstance(
+        raw_port, (int, str)
+    ):
+        raise ValueError(
+            "Database port must be an integer between 1 and 65535."
+        )
+
+    if isinstance(raw_port, str) and not re.fullmatch(
+        r"[0-9]+", raw_port
+    ):
+        raise ValueError(
+            "Database port must be an integer between 1 and 65535."
+        )
+
+    port = int(raw_port)
+
+    if not 1 <= port <= 65535:
+        raise ValueError(
+            "Database port must be between 1 and 65535."
+        )
+
+    connection_settings = {
+        "username": db_secret["username"],
+        "password": db_secret["password"],
+        "host": db_secret["host"],
+        "port": port,
+    }
 
     if engine == "postgres":
-        if not database_name:
-            raise ValueError(
-                "DATABASE_NAME is required for PostgreSQL."
-            )
-
-        port = int(db_secret.get("port", 5432))
-
-        return (
-            f"postgresql://{username}:{password}"
-            f"@{host}:{port}/{database_name}"
+        return URL.create(
+            drivername="postgresql+psycopg2",
+            database=config["DATABASE_NAME"],
+            **connection_settings,
         )
 
-    # Defensive check.
+    service_name = config.get("DATABASE_SERVICE_NAME")
+    sid = config.get("DATABASE_SID")
+
+    if service_name:
+        return URL.create(
+            drivername="oracle+oracledb",
+            query={"service_name": service_name},
+            **connection_settings,
+        )
+
+    if sid:
+        return URL.create(
+            drivername="oracle+oracledb",
+            database=sid,
+            **connection_settings,
+        )
+
     raise ValueError(
-        f"Unsupported database engine: {engine}"
+        "Oracle requires DATABASE_SERVICE_NAME or DATABASE_SID."
     )
 
 
 def create_database_engine(
-    connection_url: str,
+    connection_url: URL,
     engine: str,
     database_name: str,
 ):
@@ -247,160 +340,214 @@ def create_database_engine(
         raise
 
 
-def convert_postgres_type(column_type):
-    # Convert PostgreSQL column types to AVRO-compatible types.
-    type_name = str(column_type).lower()
+def build_decimal_type(precision, scale):
+    if (
+        isinstance(precision, bool)
+        or not isinstance(precision, int)
+        or precision < 1
+    ):
+        raise ValueError(
+            "Decimal mapping requires a positive, explicit precision."
+        )
 
-    if "uuid" in type_name:
+    if scale is None:
+        scale = 0
+
+    if isinstance(scale, bool) or not isinstance(scale, int):
+        raise ValueError(
+            "Decimal mapping requires an integer scale."
+        )
+
+    if scale < 0:
+        precision -= scale
+        scale = 0
+    else:
+        precision = max(precision, scale)
+
+    return {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": precision,
+        "scale": scale,
+    }
+
+
+def convert_postgres_type(column_type):
+    if isinstance(
+        column_type,
+        (sql_types.ARRAY, sql_types.Enum),
+    ):
+        raise ValueError(
+            f"PostgreSQL type '{column_type}' requires an explicit "
+            "mapping and is not supported yet."
+        )
+
+    if isinstance(column_type, sql_types.Uuid):
         return {
             "type": "string",
-            "logicalType": "uuid"
+            "logicalType": "uuid",
         }
-    elif "bigint" in type_name:
-        return "long"
-    elif "smallint" in type_name or "integer" in type_name:
-        return "int"
-    elif "boolean" in type_name:
+
+    if isinstance(column_type, sql_types.Boolean):
         return "boolean"
-    elif "timestamp" in type_name:
+
+    if isinstance(column_type, sql_types.BigInteger):
+        return "long"
+
+    if isinstance(column_type, sql_types.Integer):
+        return "int"
+
+    if isinstance(column_type, postgresql.REAL):
+        return "float"
+
+    if isinstance(column_type, postgresql.DOUBLE_PRECISION):
+        return "double"
+
+    if isinstance(column_type, sql_types.Float):
+        precision = column_type.precision
+
+        if precision is not None and not 1 <= precision <= 53:
+            raise ValueError(
+                "PostgreSQL floating-point precision must be "
+                "between 1 and 53."
+            )
+
+        return (
+            "float"
+            if precision is not None and precision <= 24
+            else "double"
+        )
+
+    if isinstance(column_type, sql_types.Numeric):
+        return build_decimal_type(
+            column_type.precision,
+            column_type.scale,
+        )
+
+    if isinstance(column_type, sql_types.DateTime):
         return {
             "type": "long",
-            "logicalType": "timestamp-micros"
+            "logicalType": (
+                "timestamp-micros"
+                if column_type.timezone
+                else "local-timestamp-micros"
+            ),
         }
-    elif "date" in type_name:
+
+    if isinstance(column_type, sql_types.Date):
         return {
             "type": "int",
-            "logicalType": "date"
+            "logicalType": "date",
         }
-    elif "double" in type_name:
-        return "double"
-    elif "real" in type_name or "float" in type_name:
-        return "float"
-    elif "numeric" in type_name or "decimal" in type_name:
-        precision = getattr(column_type, "precision", None)
-        scale = getattr(column_type, "scale", 0)
 
-        if precision is None:
+    if isinstance(column_type, sql_types.Time):
+        if column_type.timezone:
             raise ValueError(
-                f"Precision is required for decimal type: {column_type}"
+                "PostgreSQL TIME WITH TIME ZONE requires an explicit "
+                "mapping and is not supported yet."
             )
 
         return {
-            "type": "bytes",
-            "logicalType": "decimal",
-            "precision": precision,
-            "scale": scale or 0,
+            "type": "long",
+            "logicalType": "time-micros",
         }
-    elif "char" in type_name or "text" in type_name:
+
+    if isinstance(column_type, sql_types.LargeBinary):
+        return "bytes"
+
+    if isinstance(column_type, sql_types.String):
         return "string"
-    else:
-        raise ValueError(
-            f"Unsupported PostgreSQL type: {column_type}"
-        )
+
+    raise ValueError(
+        f"Unsupported PostgreSQL column type: {column_type}."
+    )
 
 
 
 def convert_oracle_type(column_type):
-    """
-    Convert Oracle column types to Avro-compatible types.
-
-    Args:
-        column_type: SQLAlchemy Oracle column type.
-
-    Returns:
-        Avro type definition.
-
-    Raises:
-        ValueError: Unsupported Oracle type.
-    """
-
-    type_name = str(column_type).lower()
-
-    if "number" in type_name:
-        precision = getattr(
-            column_type,
-            "precision",
-            None,
-        )
-
-        scale = getattr(
-            column_type,
-            "scale",
-            None,
-        )
-
-        # NUMBER with no precision defined
-        if precision is None:
-            return "double"
-
-        # Integer NUMBER types
-        if scale in (None, 0):
-            if precision <= 9:
-                return "int"
-
-            return "long"
-
-        # Decimal NUMBER types
-        return {
-            "type": "bytes",
-            "logicalType": "decimal",
-            "precision": precision,
-            "scale": scale,
-        }
-
-    if "integer" in type_name:
-        return "int"
-
-    if "binary_float" in type_name:
+    if isinstance(column_type, oracle.BINARY_FLOAT):
         return "float"
 
-    if "binary_double" in type_name:
+    if isinstance(column_type, oracle.BINARY_DOUBLE):
         return "double"
 
-    if "float" in type_name:
-        return "double"
+    if isinstance(column_type, sql_types.Float):
+        raise ValueError(
+            "Oracle FLOAT requires an agreed precision-preserving "
+            "mapping. It cannot automatically be treated as an "
+            "Avro float or double."
+        )
 
-    if "timestamp" in type_name:
+    if isinstance(column_type, sql_types.Numeric):
+        precision = column_type.precision
+        scale = column_type.scale
+
+        if precision is None:
+            raise ValueError(
+                "Oracle NUMBER without explicit precision is not "
+                "supported yet. An agreed lossless mapping is required."
+            )
+
+        if scale in (None, 0):
+            if 1 <= precision <= 9:
+                return "int"
+
+            if 10 <= precision <= 18:
+                return "long"
+
+        return build_decimal_type(precision, scale)
+
+    if isinstance(column_type, sql_types.Integer):
+        return build_decimal_type(38, 0)
+
+    if isinstance(column_type, oracle.TIMESTAMP):
+        if column_type.local_timezone:
+            raise ValueError(
+                "Oracle TIMESTAMP WITH LOCAL TIME ZONE requires "
+                "an explicit session-timezone policy before mapping."
+            )
+
         return {
             "type": "long",
-            "logicalType": "timestamp-micros",
+            "logicalType": (
+                "timestamp-micros"
+                if column_type.timezone
+                else "local-timestamp-micros"
+            ),
         }
 
-    if "date" in type_name:
+    if isinstance(column_type, oracle.DATE):
         return {
             "type": "long",
-            "logicalType": "timestamp-micros",
+            "logicalType": "local-timestamp-micros",
         }
 
-    if any(
-        value in type_name
-        for value in (
-            "varchar",
-            "varchar2",
-            "nvarchar2",
-            "char",
-            "nchar",
-            "clob",
-            "nclob",
-            "long",
-        )
-    ):
-        return "string"
-
-    if any(
-        value in type_name
-        for value in (
-            "blob",
-            "raw",
-            "long raw",
-        )
-    ):
+    if isinstance(column_type, sql_types.LargeBinary):
         return "bytes"
 
+    if isinstance(column_type, oracle.RAW):
+        return "bytes"
+
+    if isinstance(column_type, sql_types.String):
+        return "string"
+
     raise ValueError(
-        f"Unsupported Oracle type "
-        f"'{column_type}' ({type_name})"
+        f"Unsupported Oracle column type: {column_type}."
     )
+
+def validate_avro_name(value, label):
+    if (
+        not isinstance(value, str)
+        or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value)
+    ):
+        raise ValueError(
+            f"{label} '{value}' is not a valid Avro name. "
+            "Use a letter or underscore first, followed by "
+            "letters, numbers or underscores. "
+            "Source identifiers requiring renaming are not "
+            "supported yet."
+        )
+
 
 def build_avro_contract(
     namespace,
@@ -410,45 +557,43 @@ def build_avro_contract(
     database_name,
     engine_type,
     contract_version,
-    version,
     avro_fields,
- ):
-    # Build the generated data contract.
+    contacts,
+):
+    validate_avro_name(table_name, "Table name")
+    validate_contacts(contacts)
+
     return {
         "type": "record",
         "namespace": namespace,
+        "source": service,
         "service": service,
-        "version": version,
         "contract_version": contract_version,
         "name": table_name,
         "database_name": database_name,
         "schema_name": schema_name,
         "table_name": table_name,
         "description": "",
-        "contacts": {
-            "team": "https://dsdmoj.atlassian.net/wiki/spaces/DPR/overview?homepageId=4015489077",
-            "slack": "#ask_dpr",
-        },
+        "contacts": dict(contacts),
         "database": {
             "type": engine_type,
-            "name": database_name
+            "name": database_name,
         },
-        "fields": avro_fields
+        "fields": avro_fields,
     }
 
 
 
 
 # Read table metadata
-def get_table_metadata(inspector,schema_name: str,table_name: str,)-> tuple[list, list]:
-    """
-    Retrieve column and primary key metadata.
-    """
-    logger.info(" Retrieving Table metadata started")
-
-    if table_name not in inspector.get_table_names(schema=schema_name):
+def get_table_metadata(inspector, schema_name, table_name):
+    if not inspector.has_table(
+        table_name,
+        schema=schema_name,
+    ):
         raise ValueError(
-            f"Table '{schema_name}.{table_name}' does not exist"
+            f"Source table '{schema_name}.{table_name}' "
+            "does not exist or is not visible to the database user."
         )
 
     columns = inspector.get_columns(
@@ -456,237 +601,343 @@ def get_table_metadata(inspector,schema_name: str,table_name: str,)-> tuple[list
         schema=schema_name,
     )
 
-    #(f" columns --------->{columns}")
     primary_key = inspector.get_pk_constraint(
         table_name,
         schema=schema_name,
     )
 
-    primary_key_columns = primary_key.get(
-        "constrained_columns",
-        [],
+    primary_key_columns = (
+        primary_key.get("constrained_columns") or []
     )
 
     if not primary_key_columns:
         logger.warning(
-            "Table %s has no primary key",
-            table_name
+            "Source table has no primary key.",
+            extra={
+                "schema_name": schema_name,
+                "table_name": table_name,
+            },
         )
 
     return columns, primary_key_columns
 
+
 #Convert database columns to Avro fields
 def build_avro_fields(
-    columns: list,
-    primary_key_columns: list,
-    engine_type: str,
-)-> list:
-    """
-    Convert database columns to Avro field definitions.
-    """
+    columns,
+    primary_key_columns,
+    engine_type,
+):
+    converters = {
+        "postgres": convert_postgres_type,
+        "oracle": convert_oracle_type,
+    }
 
+    converter = converters.get(engine_type)
+
+    if converter is None:
+        raise ValueError(
+            f"Unsupported database engine: {engine_type}."
+        )
+
+    if not columns:
+        raise ValueError(
+            "Cannot generate a contract for a table with no columns."
+        )
+
+    primary_keys = set(primary_key_columns)
+    seen_names = set()
     avro_fields = []
 
     for column in columns:
-        if engine_type == "oracle":
-            avro_type = convert_oracle_type(
-                column["type"]
-            )
-        else:
-            avro_type = convert_postgres_type(
-                column["type"]
+        name = column.get("name")
+        validate_avro_name(name, "Column name")
+
+        if name in seen_names:
+            raise ValueError(
+                f"Duplicate column name in source metadata: '{name}'."
             )
 
-        if column["nullable"]:
-             avro_type = ["null", avro_type]
+        seen_names.add(name)
+
+        if "type" not in column:
+            raise ValueError(
+                f"Column '{name}' is missing type metadata."
+            )
+
+        nullable = column.get("nullable")
+
+        if not isinstance(nullable, bool):
+            raise ValueError(
+                f"Column '{name}' is missing valid nullable metadata."
+            )
+
+        try:
+            avro_type = converter(column["type"])
+        except ValueError as error:
+            raise ValueError(
+                f"Cannot map column '{name}': {error}"
+            ) from error
 
         field = {
-            "name": column["name"],
-            "type": avro_type,
+            "name": name,
+            "type": (
+                ["null", avro_type]
+                if nullable
+                else avro_type
+            ),
         }
 
-        if column["name"] in primary_key_columns:
+        if nullable:
+            field["default"] = None
+
+        if name in primary_keys:
             field["key"] = "primary"
 
         avro_fields.append(field)
+
+    missing_primary_keys = primary_keys - seen_names
+
+    if missing_primary_keys:
+        raise ValueError(
+            "Primary-key metadata references missing columns: "
+            + ", ".join(sorted(missing_primary_keys))
+        )
 
     return avro_fields
 
 
 
-def validate_contract(contract: dict,)-> bool:
-    """
-    Validate generated contract structure.
-    """
+def validate_contract(contract):
+    if not isinstance(contract, dict):
+        raise ValueError(
+            "Contract must be a JSON object."
+        )
 
-    required_fields = [
-        "type",
+    required_strings = (
         "name",
-        "version",
         "namespace",
+        "source",
+        "service",
         "contract_version",
         "database_name",
         "schema_name",
         "table_name",
-        "database",
-        "fields",
-        "service",
-    ]
+    )
 
-    for field in required_fields:
-        if field not in contract:
+    for name in required_strings:
+        value = contract.get(name)
+
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or value != value.strip()
+        ):
             raise ValueError(
-                f"Contract is missing required field '{field}'."
+                f"Contract '{name}' must contain a non-empty string "
+                "without leading or trailing whitespace."
             )
 
-    if contract["type"] != "record":
+    if contract.get("type") != "record":
         raise ValueError(
             "Contract type must be 'record'."
         )
 
-    fields = contract.get("fields", [])
-
-    if not fields:
+    if not re.fullmatch(
+        r"v[1-9][0-9]*",
+        contract["contract_version"],
+    ):
         raise ValueError(
-            "Contract must contain at least one field."
+            "Contract version must be v1 onwards, using lowercase v "
+            "and no leading zeros. v0 is reserved for migration."
         )
 
-    for field in fields:
-
-        if not field.get("name"):
+    for name in (
+        "source",
+        "database_name",
+        "schema_name",
+        "table_name",
+    ):
+        if ":" in contract[name]:
             raise ValueError(
-                "Contract field is missing required field 'name'."
+                f"Contract '{name}' must not contain ':'."
             )
+
+    validate_avro_name(contract["name"], "Record name")
+
+    for part in contract["namespace"].split("."):
+        validate_avro_name(part, "Namespace segment")
+
+    if contract["name"] != contract["table_name"]:
+        raise ValueError(
+            "Generated record name must match table_name."
+        )
+
+    if contract["source"] != contract["service"]:
+        raise ValueError(
+            "Generated source must match service."
+        )
+
+    database = contract.get("database")
+
+    if (
+        not isinstance(database, dict)
+        or database.get("type") not in SUPPORTED_ENGINES
+        or database.get("name") != contract["database_name"]
+    ):
+        raise ValueError(
+            "Contract database metadata must contain a supported "
+            "engine and match database_name."
+        )
+
+    validate_contacts(contract.get("contacts"))
+
+    fields = contract.get("fields")
+
+    if not isinstance(fields, list) or not fields:
+        raise ValueError(
+            "Contract fields must be a non-empty list."
+        )
+
+    seen_names = set()
+
+    for field in fields:
+        if not isinstance(field, dict):
+            raise ValueError(
+                "Each contract field must be a JSON object."
+            )
+
+        name = field.get("name")
+        validate_avro_name(name, "Field name")
+
+        if name in seen_names:
+            raise ValueError(
+                f"Duplicate contract field name: '{name}'."
+            )
+
+        seen_names.add(name)
 
         if "type" not in field:
             raise ValueError(
-                f"Contract field '{field.get('name', 'unknown')}' "
-                "is missing required field 'type'."
+                f"Contract field '{name}' is missing its type."
             )
 
-    return True
 
-def validate_avro_contract(contract: dict,)-> bool:
-    """
-    Validate contract structure and Avro schema.
+def validate_avro_contract(contract):
+    validate_contract(contract)
 
-    Returns:
-        bool: True if validation succeeds, False otherwise.
-    """
-
-    try:
-        if validate_contract(contract):
-
-            avro_schema = {
-                "type": contract["type"],
-                "name": contract["name"],
-                "namespace": contract["namespace"],
-                "fields": contract["fields"],
-}
-            parse_schema(avro_schema)
-
-            logger.info(
-                "Contract and Avro schema validation successful"
-            )
-
-            return True
-
-        return False
-
-    except Exception:
-        logger.exception(
-            "Contract and Avro schema validation failed"
+    schema_copy = json.loads(
+        json.dumps(
+            contract,
+            allow_nan=False,
         )
-        return False
-
-
-def save_contract(
-    schema_registry_bucket: str,
-    contract: dict,
-    engine_type: str,
-    database_name: str,
-    schema_name: str,
-    table_name: str,
-    contract_version: str,
-)-> str:
-    """
-    Store contract in schema registry.
-
-    Returns:
-        str: S3 object key.
-    """
-
-   
-    object_key = (
-        f"{engine_type}/"
-        f"{database_name}/"
-        f"{schema_name}/"
-        f"{table_name}/"
-        f"{contract_version}/"
-        "contract.avsc"
     )
 
+    parse_schema(schema_copy)
+
+
+def normalise_contract(contract):
+    return json.dumps(
+        contract,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
+def calculate_contract_fingerprint(contract):
+    normalised = normalise_contract(contract)
+
+    return hashlib.sha256(
+        normalised.encode("utf-8")
+    ).hexdigest()
+
+
+def save_contract(schema_registry_bucket, contract):
+    validate_avro_contract(contract)
+
+    path_parts = (
+        contract["source"],
+        contract["database_name"],
+        contract["schema_name"],
+        contract["table_name"],
+        contract["contract_version"],
+    )
+
+    object_key = "/".join(
+        quote(part, safe="")
+        for part in path_parts
+    ) + "/contract.avsc"
+
+    fingerprint = calculate_contract_fingerprint(contract)
+
+    result = {
+        "bucket_name": schema_registry_bucket,
+        "s3_key": object_key,
+        "s3_contract_uri": (
+            f"s3://{schema_registry_bucket}/{object_key}"
+        ),
+        "schema_fingerprint": fingerprint,
+    }
+
     try:
-        s3.head_object(
+        response = s3.put_object(
             Bucket=schema_registry_bucket,
             Key=object_key,
-        )
-
-        logger.warning(
-            "Contract already exists. Skipping table.",
-            extra={
-                "bucket": schema_registry_bucket,
-                "object_key": object_key,
-            },
-        )
-
-        return None
-
-    except ClientError as e:
-        error_code = e.response["Error"]["Code"]
-
-        # Expected when object does not exist
-        if error_code not in (
-            "404",
-            "NoSuchKey",
-            "NotFound",
-        ):
-            logger.exception(
-                "Failed checking schema existence"
-            )
-            raise
-    
-    # Upload contract
-    try:
-        s3.put_object(
-            Bucket=schema_registry_bucket,
-            Key=object_key,
-            Body=json.dumps(
-                contract,
-                indent=2,
-            ).encode("utf-8"),
+            Body=normalise_contract(contract).encode("utf-8"),
             ContentType="application/avro+json",
+            IfNoneMatch="*",
         )
 
-        logger.info(
-            "Contract stored successfully",
-            extra={
-                "bucket": schema_registry_bucket,
-                "object_key": object_key,
-            },
+    except ClientError as error:
+        error_code = error.response.get("Error", {}).get("Code")
+        http_status = error.response.get(
+            "ResponseMetadata", {}
+        ).get("HTTPStatusCode")
+
+        if (
+            error_code not in ("PreconditionFailed", "412")
+            and http_status != 412
+        ):
+            raise
+
+        response = s3.get_object(
+            Bucket=schema_registry_bucket,
+            Key=object_key,
         )
 
-        return object_key
+        body = response["Body"]
 
-    except ClientError:
-        logger.exception(
-            "Failed to store contract in S3",
-            extra={
-                "bucket": schema_registry_bucket,
-                "object_key": object_key,
-            },
+        try:
+            existing_contract = json.loads(
+                body.read().decode("utf-8")
+            )
+        finally:
+            body.close()
+
+        existing_fingerprint = calculate_contract_fingerprint(
+            existing_contract
         )
-        raise
+
+        if existing_fingerprint != fingerprint:
+            raise ValueError(
+                f"Contract '{object_key}' already exists "
+                "with different content. Supply a new contract "
+                "version through the contract lifecycle process."
+            ) from error
+
+        result["status"] = "ALREADY_EXISTS"
+
+    else:
+        result["status"] = "STORED"
+
+    version_id = response.get("VersionId")
+
+    if version_id is not None:
+        result["s3_object_version_id"] = version_id
+
+    return result
 
 
 def generate_contract(
@@ -698,34 +949,34 @@ def generate_contract(
     service: str,
     schema_registry_bucket: str,
     contract_version: str,
-    version: str,
     namespace: str,
     execution_id: str,
+    contacts: dict,
 ):
-    """
-    Generate and store schema contract for a table.
-    """
+    log_context = {
+        "execution_id": execution_id,
+        "source": service,
+        "database_name": database_name,
+        "schema_name": schema_name,
+        "table_name": table_name,
+        "contract_version": contract_version,
+    }
 
     logger.info(
-        "Schema generation started",
-        extra={
-            "execution_id": execution_id,
-            "database_name": database_name,
-            "schema_name": schema_name,
-            "table_name": table_name,
-        },
+        "Schema generation started.",
+        extra=log_context,
     )
 
-    columns, primary_key_columns = get_table_metadata(inspector,schema_name,table_name,
+    columns, primary_key_columns = get_table_metadata(
+        inspector,
+        schema_name,
+        table_name,
     )
 
     logger.info(
-        "Source metadata retrieved",
+        "Source metadata retrieved.",
         extra={
-            "execution_id": execution_id,
-            "database_name": database_name,
-            "schema_name": schema_name,
-            "table_name": table_name,
+            **log_context,
             "column_count": len(columns),
         },
     )
@@ -736,159 +987,162 @@ def generate_contract(
         engine_type,
     )
 
-    contract = build_avro_contract(namespace,service,table_name,schema_name,database_name,engine_type,contract_version,version,avro_fields)
-
-    if not validate_avro_contract(contract):
-        raise ValueError(
-            f"Contract validation failed for table '{table_name}'."
+    contract = build_avro_contract(
+        namespace=namespace,
+        service=service,
+        table_name=table_name,
+        schema_name=schema_name,
+        database_name=database_name,
+        engine_type=engine_type,
+        contract_version=contract_version,
+        avro_fields=avro_fields,
+        contacts=contacts,
     )
 
-    s3_key = save_contract(schema_registry_bucket,contract,engine_type,database_name,schema_name,table_name,contract_version)
+    publication = save_contract(
+        schema_registry_bucket,
+        contract,
+    )
 
     logger.info(
-        "Schema generated and stored successfully",
+        "Schema generation completed.",
         extra={
-            "execution_id": execution_id,
-            "database_name": database_name,
-            "schema_name": schema_name,
-            "table_name": table_name,
-            "contract_version": contract_version,
-            "object_key": s3_key,
+            **log_context,
+            "publication_status": publication["status"],
+            "object_key": publication["s3_key"],
+            "s3_object_version_id": publication.get(
+                "s3_object_version_id"
+            ),
         },
     )
 
     return {
+        "source": service,
+        "database_name": database_name,
+        "schema_name": schema_name,
         "table_name": table_name,
         "contract_version": contract_version,
-        "version": version,
-        "s3_key": s3_key,
+        **publication,
     }
 
+
 def lambda_handler(event, context):
+    execution_id = getattr(context, "aws_request_id", None)
 
-    execution_id = context.aws_request_id
+    log_context = {
+        "execution_id": execution_id,
+    }
 
-    #validate lambda configuration
-    config = validate_configuration()
+    db_engine = None
 
-    engine_type = config["ENGINE"]
-    service = config["SERVICE"]
-    database_name = config["DATABASE_NAME"]
-    schema_name = config["SCHEMA_NAME"]
-    namespace = config["NAMESPACE"]
-    db_secret = config["DB_SECRET_ARN"]
-    schema_registry = config["SCHEMA_REGISTRY_BUCKET"]
-    contract_version = config["CONTRACT_VERSION"]
-    version = config["VERSION"]
-    table_list = config["TABLE_LIST"]
+    try:
+        config = validate_configuration()
 
-
-    logger.info(
-        "Lambda configuration loaded",
-        extra={
-            "ENGINE": config["ENGINE"],
-            "SERVICE": config["SERVICE"],
-            "DATABASE_NAME": config["DATABASE_NAME"],
-            "SCHEMA_NAME": config["SCHEMA_NAME"],
-            "NAMESPACE": config["NAMESPACE"],
-            "TABLE_LIST": config["TABLE_LIST"],
-            "CONTRACT_VERSION": config["CONTRACT_VERSION"],
-            "VERSION": config["VERSION"],
-        },
-    )
-    #Read db config form secret manager
-    db_secret = get_database_secret(db_secret)
-
-   
-    #Build db connection
-    connection_url = build_database_connection(engine_type,database_name,db_secret)
-
-    #ßlogger.info(f"connection_url ------->{connection_url}")
-
-    #create engine
-    db_engine = create_database_engine(connection_url,engine_type, database_name)
-    #logger.info(f"db_engine ------->{db_engine}")
-    try: 
-        inspector = inspect(db_engine)
-        '''
-        create_sql = """
-        CREATE TABLE IF NOT EXISTS test_customer (
-            customer_id BIGSERIAL PRIMARY KEY,
-            customer_name VARCHAR(100) NOT NULL,
-            email VARCHAR(255),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        log_context.update(
+            {
+                "engine": config["ENGINE"],
+                "source": config["CONTRACT_SERVICE"],
+                "database_name": config["DATABASE_NAME"],
+                "schema_name": config["SCHEMA_NAME"],
+                "contract_version": config["CONTRACT_VERSION"],
+            }
         )
-        """
-
-       
-        with db_engine.begin() as connection:
-            connection.execute(text(create_sql))
-
-        print("Table test_customer created successfully")
-        '''
-        tables = inspector.get_table_names(schema=schema_name)
 
         logger.info(
-            "Found %s tables in schema %s: %s",
-            len(tables),
-            schema_name,
-            ", ".join(sorted(tables)),
-        )
-     
-        # TABLE_LIST is supplied as a comma-separated environment value.
-        generated_contracts = []
-        failed_tables = []
-
-        for table_name in table_list:
-            try:
-                logger.info(f"Table_name ----------->{table_name}")
-                result = generate_contract(
-                    inspector,
-                    engine_type,
-                    database_name,
-                    schema_name,
-                    table_name,
-                    service,
-                    schema_registry,
-                    contract_version,
-                    version,
-                    namespace,
-                    execution_id,
-                    )
-                generated_contracts.append(result)
-
-            except Exception:
-                logger.exception(
-                    "Failed processing table %s",
-                    table_name
-                )
-                failed_tables.append(
-                    {
-                        "table_name": table_name
-                    }
-                )
-
-                # continue with next table
-                continue
-    
-
-        return {
-            "statusCode": 200,
-            "body": json.dumps(
-                {
-                    "message": "Schema generation completed",
-                    "contracts": generated_contracts,
-                    "failed_tables": failed_tables,
-                }
-            ),
-        }
-
-    finally:
-        logger.info(
-            "Disposing database engine",
+            "Schema generation configuration loaded.",
             extra={
-                "database_name": database_name,
-                "engine": engine_type,
+                **log_context,
+                "table_count": len(config["TABLE_LIST"]),
             },
         )
-        db_engine.dispose()
+
+        db_secret = get_database_secret(
+            config["DB_SECRET_ARN"]
+        )
+
+        connection_url = build_database_connection(
+            config,
+            db_secret,
+        )
+
+        db_engine = create_database_engine(
+            connection_url,
+            config["ENGINE"],
+            config["DATABASE_NAME"],
+        )
+
+        generated_contracts = []
+        failed_tables = []
+        last_error = None
+
+        with db_engine.connect() as connection:
+            inspector = inspect(connection)
+
+            for table_name in config["TABLE_LIST"]:
+                try:
+                    result = generate_contract(
+                        inspector=inspector,
+                        engine_type=config["ENGINE"],
+                        database_name=config["DATABASE_NAME"],
+                        schema_name=config["SCHEMA_NAME"],
+                        table_name=table_name,
+                        service=config["CONTRACT_SERVICE"],
+                        schema_registry_bucket=config[
+                            "SCHEMA_REGISTRY_BUCKET"
+                        ],
+                        contract_version=config[
+                            "CONTRACT_VERSION"
+                        ],
+                        namespace=config["CONTRACT_NAMESPACE"],
+                        execution_id=execution_id,
+                        contacts=config["CONTRACT_CONTACTS"],
+                    )
+
+                    generated_contracts.append(result)
+
+                except Exception as error:
+                    logger.exception(
+                        "Table contract generation failed.",
+                        extra={
+                            **log_context,
+                            "table_name": table_name,
+                        },
+                    )
+
+                    failed_tables.append(table_name)
+                    last_error = error
+
+                    connection.rollback()
+
+        if failed_tables:
+            raise RuntimeError(
+                "Schema generation failed for "
+                f"{len(failed_tables)} table(s): "
+                + ", ".join(failed_tables)
+                + ". Successfully published contracts were retained."
+            ) from last_error
+
+        logger.info(
+            "Schema generation completed successfully.",
+            extra={
+                **log_context,
+                "contract_count": len(generated_contracts),
+            },
+        )
+
+        return {
+            "status": "SUCCEEDED",
+            "execution_id": execution_id,
+            "contracts": generated_contracts,
+        }
+
+    except Exception:
+        logger.exception(
+            "Schema generation invocation failed.",
+            extra=log_context,
+        )
+        raise
+
+    finally:
+        if db_engine is not None:
+            db_engine.dispose()
