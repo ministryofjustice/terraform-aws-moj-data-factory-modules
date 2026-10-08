@@ -27,7 +27,7 @@ repos:
         pass_filenames: false
 
   - repo: https://github.com/streetsidesoftware/cspell-cli
-    rev: 058f44e47719e80d8f1e597a235310b60e937860  # frozen: v10.2.0
+    rev: f5c5d72342f35643988a9ffa0705c05bd3ff8383  # frozen: v10.3.0
     hooks:
       - id: cspell # Spell check changed files
         args:
