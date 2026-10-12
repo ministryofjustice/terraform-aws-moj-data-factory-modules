@@ -8,5 +8,9 @@
     "**/*.tfstate",
     "**/*.tfstate.*",
     "**/node_modules/**"
+    "**/__snapshots__/**",
+    "**/examples/**",
+    "**/*test*.py"
+  ],
   ]
 }

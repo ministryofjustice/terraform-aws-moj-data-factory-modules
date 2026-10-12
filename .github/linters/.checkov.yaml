@@ -1,0 +1,10 @@
+---
+# Don't report passed checks in output
+quiet: true
+
+# The example projects under this module are illustrative, non-production
+# deployments (throwaway RDS instances and helper Lambdas). Security best
+# practice checks such as Multi-AZ, deletion protection and enhanced
+# monitoring are intentionally not applied there, so skip that path.
+skip-path:
+  - "modules/database-migration-service/examples"

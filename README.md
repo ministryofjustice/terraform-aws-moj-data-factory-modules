@@ -30,6 +30,7 @@ As the repository grows, each module should include clear inputs, outputs, usage
 | [airflow-iam-role](modules/airflow-iam-role/README.md) | Manages an AWS IAM role in a Justice Data Factory for use in Justice Data Platform Airflow workloads, including the trust policy and customer-managed IAM policies created from supplied policy documents and attached to the role. |
 | [fabric-oidc-provider](modules/fabric-oidc-provider/README.md) | Creates an AWS IAM OIDC provider for Microsoft Entra integration |
 | [fabric-iam-role](modules/fabric-iam-role/README.md) | Creates an IAM role for S3 access via Entra OIDC federation |
+| [database-migration-service](modules/database-migration-service/README.md) | Provisions an AWS DMS (Database Migration Service) setup to replicate data from an Oracle or Postgres source into an S3-based data lake, including replication instance, endpoints, full-load and CDC tasks, IAM roles, metadata/validation Lambdas, and Slack alerting. |
 <!-- markdownlint-enable -->
 <!-- prettier-ignore-end -->
 
