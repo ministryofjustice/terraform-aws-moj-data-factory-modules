@@ -336,11 +336,6 @@ def extract_metadata_from_key(
 
     parts = object_key.split("/")
 
-    if len(parts) < 6:
-        raise ValueError(
-            f"Unexpected key structure: {object_key}"
-        )
-
     return {
         "source": parts[1],
         "database_name": parts[2],
