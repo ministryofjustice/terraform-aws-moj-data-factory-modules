@@ -1,28 +1,29 @@
 import hashlib
-import json
-import os
-import re
-import urllib.parse
+import os 
 import uuid
-from datetime import datetime, timezone
-
+import urllib.parse
+import json
 import boto3
-from botocore.exceptions import ClientError
+import pyarrow as pa
+import pyarrow.parquet as pq
+
+from datetime import datetime, timezone
+from boto3.dynamodb.conditions import Key
+from typing import Any, Dict
+from io import BytesIO
 
 from logger import get_logger
 
-logger = get_logger('schema-registration')
 
-s3 = boto3.client('s3')
-dynamodb = boto3.resource('dynamodb')
+logger = get_logger("schema-validation")
 
-AUDIT_TABLE_NAME = os.environ.get(
-    "AUDIT_TABLE_NAME",
-    "schema_lifecycle_audit" # default value linking to the testing DynamoDB table
-)
+s3 = boto3.client("s3")
+dynamodb = boto3.resource("dynamodb")
+AUDIT_TABLE_NAME = os.environ["AUDIT_TABLE_NAME"]
+INGESTION_TYPE = os.environ["INGESTION_TYPE"] #FULL or CDC 
 
-CURATED_LAYER_BUCKET_NAME = "curated-layer-test-bucket"
-
+if not AUDIT_TABLE_NAME.strip():
+    raise ValueError("AUDIT_TABLE_NAME must not be empty.")
 audit_table = dynamodb.Table(AUDIT_TABLE_NAME)
 
 REQUIRED_METADATA = (
@@ -30,19 +31,17 @@ REQUIRED_METADATA = (
     "database_name",
     "schema_name",
     "table_name",
-    "contract_version",
 )
 
-
-def validate_required_metadata(contract):
-    if not isinstance(contract, dict):
+def validate_required_metadata(metadata):
+    if not isinstance(metadata, dict):
         raise ValueError("Contract must be a JSON object.")
 
     invalid_fields = [
         field
         for field in REQUIRED_METADATA
-        if not isinstance(contract.get(field), str)
-        or not contract[field].strip()
+        if not isinstance(metadata.get(field), str)
+        or not metadata[field].strip()
     ]
 
     if invalid_fields:
@@ -52,25 +51,228 @@ def validate_required_metadata(contract):
         )
 
     for field in REQUIRED_METADATA:
-        if contract[field] != contract[field].strip():
+        if metadata[field] != metadata[field].strip():
             raise ValueError(
                 f"Metadata field '{field}' must not contain "
                 "leading or trailing whitespace."
             )
 
     for field in ("source", "database_name", "schema_name", "table_name"):
-        if ":" in contract[field]:
+        if ":" in metadata[field]:
             raise ValueError(
                 f"Metadata field '{field}' must not contain ':', "
                 "because it separates contract identity fields."
             )
 
-    if not re.fullmatch(r"v[1-9][0-9]*", contract["contract_version"]):
-        raise ValueError(
-            "Invalid contract_version. Expected v1, v2, v3, etc. "
-            "Use lowercase v with no leading zeros. "
-            "v0 is reserved for future migration."
+def build_contract_id(contract):
+    identity = (
+        f"{contract['source']}:"
+        f"{contract['database_name']}:"
+        f"{contract['schema_name']}:"
+        f"{contract['table_name']}"
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, identity))
+
+def arrow_type_to_avro(
+    field_type: pa.DataType,
+) -> Any:
+    """
+    Convert PyArrow type to Avro type.
+    """
+
+    if pa.types.is_null(field_type):
+        return "null"
+
+    if pa.types.is_boolean(field_type):
+        return "boolean"
+
+    if pa.types.is_int8(field_type):
+        return "int"
+
+    if pa.types.is_int16(field_type):
+        return "int"
+
+    if pa.types.is_int32(field_type):
+        return "int"
+
+    if pa.types.is_int64(field_type):
+        return "long"
+
+    if pa.types.is_uint8(field_type):
+        return "int"
+
+    if pa.types.is_uint16(field_type):
+        return "int"
+
+    if pa.types.is_uint32(field_type):
+        return "long"
+
+    if pa.types.is_uint64(field_type):
+        return "long"
+
+    if pa.types.is_float32(field_type):
+        return "float"
+
+    if pa.types.is_float64(field_type):
+        return "double"
+
+    if pa.types.is_string(field_type):
+        return "string"
+
+    if pa.types.is_large_string(field_type):
+        return "string"
+
+    if pa.types.is_binary(field_type):
+        return "bytes"
+
+    if pa.types.is_large_binary(field_type):
+        return "bytes"
+
+    if pa.types.is_date(field_type):
+        return {
+            "type": "int",
+            "logicalType": "date",
+        }
+
+    if pa.types.is_timestamp(field_type):
+        return {
+            "type": "long",
+            "logicalType": "timestamp-millis",
+        }
+
+    if pa.types.is_decimal(field_type):
+        return {
+            "type": "bytes",
+            "logicalType": "decimal",
+            "precision": field_type.precision,
+            "scale": field_type.scale,
+        }
+
+    if pa.types.is_list(field_type):
+        return {
+            "type": "array",
+            "items": arrow_type_to_avro(
+                field_type.value_type
+            ),
+        }
+
+    if pa.types.is_struct(field_type):
+
+        fields = []
+
+        for nested_field in field_type:
+
+            fields.append(
+                {
+                    "name": nested_field.name,
+                    "type": [
+                        "null",
+                        arrow_type_to_avro(
+                            nested_field.type
+                        ),
+                    ],
+                    "default": None,
+                }
+            )
+
+        return {
+            "type": "record",
+            "name": "NestedRecord",
+            "fields": fields,
+        }
+
+    raise ValueError(
+        f"Unsupported Arrow type: {field_type}"
+    )
+
+def build_avro_schema(
+    parquet_schema: pa.Schema,
+    record_name: str,
+    namespace: str,
+) -> Dict[str, Any]:
+    """
+    Create Avro schema from parquet schema.
+    """
+
+    fields = []
+
+    for field in parquet_schema:
+
+        fields.append(
+            {
+                "name": field.name,
+                "type": [
+                    "null",
+                    arrow_type_to_avro(field.type),
+                ],
+                "default": None,
+            }
         )
+
+    return {
+        "type": "record",
+        "name": record_name,
+        "namespace": namespace,
+        "fields": fields,
+    }
+
+
+def read_parquet_schema_from_s3(
+    bucket: str,
+    key: str,
+) -> pa.Schema:
+    """
+    Read schema only from parquet footer.
+    """
+
+    obj = s3.get_object(
+        Bucket=bucket,
+        Key=key,
+    )
+
+    body = obj["Body"]
+
+    try:
+
+        parquet_bytes = body.read()
+
+    finally:
+
+        body.close()
+
+    parquet_file = pq.ParquetFile(
+        BytesIO(parquet_bytes)
+    )
+
+    return parquet_file.schema_arrow
+
+"""
+#TB used for FULL load ..yest to be implemented.
+def list_parquet_files(
+    bucket: str,
+    prefix: str,
+) -> list[str]:
+   
+    keys = []
+
+    paginator = s3.get_paginator(
+        "list_objects_v2"
+    )
+
+    for page in paginator.paginate(
+        Bucket=bucket,
+        Prefix=prefix,
+    ):
+
+        for item in page.get("Contents", []):
+
+            key = item["Key"]
+
+            if key.endswith(".parquet"):
+                keys.append(key)
+
+    return keys
+"""
 
 
 def normalise_contract(contract):
@@ -83,120 +285,276 @@ def normalise_contract(contract):
     )
 
 
-def calculate_contract_fingerprint(contract):
+def generate_fingerprint(contract):
     """Hash the complete contract for duplicate/conflict detection."""
     normalised = normalise_contract(contract)
     return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
 
 
-def process_record(record, context):
-    try:
-        # Read and validate the schema
-        object_key = urllib.parse.unquote_plus(record['s3']['object']['key'])
-        bucket_name = record['s3']['bucket']['name']
+def generate_avro_schema(
+    bucket_name: str,
+    object_key: str,
+    source: str,
+    database_name: str,
+    schema_name: str,
+    table_name: str,
+) -> dict:
+    """
+    Generate Avro schema from Parquet file.
+    """
 
-        logger.info("Schema validation started.",
-            extra={
-                'execution_id': context.aws_request_id,
-                'object_key': object_key
+    parquet_schema = (
+        read_parquet_schema_from_s3(
+            bucket=bucket_name,
+            key=object_key,
+        )
+    )
+
+    avro_schema = build_avro_schema(
+        parquet_schema=parquet_schema,
+        record_name=table_name,
+        namespace=(
+            f"{source}."
+            f"{database_name}."
+            f"{schema_name}"
+        ),
+    )
+
+    logger.info(
+        "Generated Avro schema "
+        "for %s.%s.%s",
+        database_name,
+        schema_name,
+        table_name,
+    )
+
+    return avro_schema
+
+def extract_metadata_from_key(
+    object_key: str,
+) -> dict:
+
+    parts = object_key.split("/")
+
+    if len(parts) < 6:
+        raise ValueError(
+            f"Unexpected key structure: {object_key}"
+        )
+
+    return {
+        "source": parts[1],
+        "database_name": parts[2],
+        "schema_name": parts[3],
+        "table_name": parts[4],
+        "prefix": "/".join(parts[:-1]),
+    }
+
+def get_latest_contract(
+    contract_id: str,
+) -> dict | None:
+    """
+    Return latest registered contract.
+    """
+
+    response = audit_table.query(
+        KeyConditionExpression=
+            Key("contract_id").eq(contract_id),
+        ScanIndexForward=False,
+        Limit=1,
+        ConsistentRead=True,
+    )
+
+    items = response.get("Items", [])
+
+    if not items:
+        return None
+
+    return items[0]
+
+def process_event(record, context):
+    log_context = {
+        "execution_id": getattr(context, "aws_request_id", None),
+    }
+
+    try:
+        bucket_name = record["s3"]["bucket"]["name"]
+        object_details = record["s3"]["object"]
+        object_key = urllib.parse.unquote_plus(object_details["key"])
+        version_id = object_details.get("versionId")
+
+        log_context.update(
+            {
+                "bucket_name": bucket_name,
+                "object_key": object_key,
+                "s3_object_version_id": version_id,
             }
         )
-        logger.info(f"Reading from S3 ...")
-        s3_response = s3.get_object(Bucket=bucket_name, Key=object_key)
-        file_bytes = s3_response["Body"].read()
-        metadata = json.loads(file_bytes.decode("utf-8"))
+
+        logger.info("Schema Validation started.", extra=log_context)
+
+        #extract metadata
+        metadata = extract_metadata_from_key(
+            object_key,
+        )
+
+        source = metadata["source"]
+        database_name = metadata["database_name"]
+        schema_name = metadata["schema_name"]
+        table_name = metadata["table_name"]
         
-        logger.info(f"Generating Schema fingerprint ... ")
-        schema_fingerprint = calculate_contract_fingerprint(metadata)
-
-        logger.info(f"schema_fingerprint generated :::{schema_fingerprint}")
-
+        #Validate metadata
         validate_required_metadata(metadata)
 
-        source_name = metadata["source"]
-        schema_name = metadata["schema_name"]
-        db_name = metadata["database_name"]
-        table_name = metadata["table_name"]
-        contract_version = metadata["contract_version"]
+        #Build contract_id
+        contract_id = build_contract_id(metadata)
 
-        logger.info("Generating contract ID ...")
-        contract_id = str(uuid.uuid5(uuid.NAMESPACE_DNS,f"{source_name}:{db_name}:{schema_name}:{table_name}"))
-        
-        logger.info(f"Contract ID generated :::{contract_id}")
+        #generate contarct from S3
+        contract = generate_avro_schema(
+            bucket_name=bucket_name,
+            object_key=object_key,
+            source=source,
+            database_name=database_name,
+            schema_name=schema_name,
+            table_name=table_name,
+        )
 
-        # Fetch the existing schema and compare the two
-        logger.info("Fetching schema from DynamoDB ...")
-        keys = {'contract_id': contract_id, 'contract_version': contract_version}
-        existing = audit_table.get_item(Key=keys, ConsistentRead=True)
-        item = existing.get('Item')
-
-        if not item:
-            logger.error("Contract not found in DynamoDB table.",
-                extra={
-                    'execution_id': context.aws_request_id,
-                    'contract_id': contract_id,
-                    'contract_version': contract_version
-                }
+        logger.info(
+            json.dumps(
+                contract,
+                indent=2,
             )
-            raise
-
-        fingerprints_match = schema_fingerprint == item['schema_fingerprint']
-
-        validation_outcome = "SUCCESS" if fingerprints_match else "FAIL"
-        validation_summary = "No change" if fingerprints_match else "Schema changed"
-
-        # Publish this result to the audit table and logs
-        logger.info(f"Validation outcome: {validation_outcome} \n"
-                    f"Validation summary: {validation_summary}",
-            extra={
-                'execution_id': context.aws_request_id,
-                'contract_id': contract_id,
-                'contract_version': contract_version
-            }
         )
 
-        update_response = audit_table.update_item(
-            Key=keys,
-            UpdateExpression="SET validation_outcome = :v1, validation_summary = :v2",
+        #generate finger print for NEW incoming data
+        new_fingerprint = generate_fingerprint(contract)
+
+        #Retrieve existing contract_id and schema finger print from dynamodb
+        latest_contract = get_latest_contract(
+            contract_id
+        )
+        if latest_contract is None:
+            raise ValueError(
+                f"No contract found for {contract_id}"
+            )
+        existing_fingerprint = (
+            latest_contract.get(
+                "schema_fingerprint"
+            )
+        )
+        
+        if not existing_fingerprint:
+            raise ValueError(
+                f"schema_fingerprint not found for "
+                f"contract_id={contract_id}"
+            )
+
+        if (
+            existing_fingerprint != new_fingerprint
+        ):
+            logger.error(
+                "Schema validation failed. "
+                "Contract fingerprint mismatch. "
+                "contract_id=%s, version=%s, "
+                "expected=%s, actual=%s",
+                contract_id,
+                latest_contract["contract_version"],
+                existing_fingerprint,
+                new_fingerprint,
+            )
+
+            raise ValueError(
+                "Incoming schema does not match the latest "
+                f"registered contract. Expected fingerprint "
+                f"'{existing_fingerprint}' but received "
+                f"'{new_fingerprint}'."
+            )
+        contract_version = latest_contract["contract_version"]
+        ingestion_version = f"ING_{contract_version}"
+        timestamp = datetime.now(
+                timezone.utc
+        ).isoformat()
+        audit_table.update_item(
+            Key={
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+            },
+            UpdateExpression=(
+                "SET "
+                "ingestion_version = :ingestion_version, "
+                "validation_status = :status, "
+                "validation_summary = :summary, "
+                "last_validated_at = :ts"
+            ),
             ExpressionAttributeValues={
-                ':v1': validation_outcome,
-                ':v2': validation_summary
-            }
+                ":ingestion_version": ingestion_version,
+                ":status": "SUCCESS",
+                ":summary": (
+                    "schema macthed."
+                ),
+                ":ts": timestamp,
+            },
         )
 
-        if fingerprints_match:
-            try:
-                logger.info("Uploading file to curated layer ...")
-                file_name = object_key.split("/")[-1]
-                s3.put_object(
-                    Bucket=CURATED_LAYER_BUCKET_NAME,
-                    Key=file_name,
-                    Body=file_bytes
-                )
-                logger.info("File successfully uploaded to curated layer.",
-                    extra={
-                        'execution_id': context.aws_request_id,
-                        'contract_id': contract_id,
-                        'contract_version': contract_version,
-                        'file_name': file_name
-                    }
-                )
-            except Exception as e:
-                logger.error(f"Error whilst uploading to curated layer: {str(e)}")
-        else:
-        # If fingerprints did not match, invoke the relevant step function
-            pass
-
+        logger.info(
+            "Schema validation successful. "
+            "contract_id=%s version=%s",
+            contract_id,
+            contract_version,
+        )
+        return {
+            "contract_id": contract_id, 
+            "contract_version": contract_version,
+            "ingestion_version": ingestion_version,
+            "validation_status": "SUCCESS",
+        }
     except Exception:
-        logger.exception("Schema validation failed.")
+        logger.exception(
+            "Schema Validation failed.",
+            extra=log_context,
+        )
         raise
 
 
 def lambda_handler(event, context):
-    for record in event["Records"]:
-        process_record(record, context)
+
+    if not isinstance(event, dict):
+        raise ValueError("Expected an S3 event object.")
+
+    records = event.get("Records", [])
+
+    if not isinstance(records, list) or not records:
+        raise ValueError(
+            "Expected an S3 event containing a non-empty Records list."
+        )
+    
+    #Full Load 
+
+
+    #CDC flow
+    results = []
+    for record in records:
+        try:
+            result = process_event(
+                record,
+                context,
+            )
+
+            results.append(result)
+
+        except Exception as error:
+
+            logger.exception(
+                "Contract validation failed. "
+                "Stopping further processing."
+            )
+
+            raise RuntimeError(
+                f"Processing stopped because "
+                f"contract validation failed: {error}"
+            ) from error
 
     return {
-        'statusCode': 200,
-        'body': json.dumps('Hello from Lambda!')
+        "statusCode": 200,
+        "processed_records": len(results),
+        "results": results,
     }
