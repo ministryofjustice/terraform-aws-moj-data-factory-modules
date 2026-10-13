@@ -49,7 +49,7 @@
     "osuser",
     "preprod",
     "powerbi",
-    "color"
+    "color",
     "psycopg",
     "pyarrow",
     "pycache",
