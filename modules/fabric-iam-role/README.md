@@ -121,7 +121,7 @@ No modules.
 | <a name="input_additional_tags"></a> [additional\_tags](#input\_additional\_tags) | Additional tags to apply to resources created by this module. | `map(string)` | `{}` | no |
 | <a name="input_audience"></a> [audience](#input\_audience) | Expected OIDC audience (`aud`) claim. Defaults to the Power BI Amazon S3 connector audience. | `string` | `"https://analysis.windows.net/powerbi/connector/AmazonS3"` | no |
 | <a name="input_bucket_arn"></a> [bucket\_arn](#input\_bucket\_arn) | ARN of the S3 bucket this role can read. | `string` | n/a | yes |
-| <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Enterprise Application (service principal) Object ID of the Microsoft Entra identity allowed to assume the IAM role. This is the Object ID found under Enterprise applications > <app> > Overview, NOT the App registration Object ID. | `string` | n/a | yes |
+| <a name="input_object_id"></a> [object\_id](#input\_object\_id) | Enterprise Application (service principal) Object ID of the Microsoft Entra identity allowed to assume the IAM role. | `string` | n/a | yes |
 | <a name="input_oidc_provider_arn"></a> [oidc\_provider\_arn](#input\_oidc\_provider\_arn) | ARN of the IAM OIDC provider trusted by this role. | `string` | n/a | yes |
 | <a name="input_oidc_provider_condition_key_prefix"></a> [oidc\_provider\_condition\_key\_prefix](#input\_oidc\_provider\_condition\_key\_prefix) | Condition key prefix from the fabric-oidc-provider module output (e.g. 'sts.windows.net/{tenant\_id}/:'). | `string` | n/a | yes |
 | <a name="input_role_name"></a> [role\_name](#input\_role\_name) | IAM role name for Fabric web identity access. | `string` | n/a | yes |
