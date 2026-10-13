@@ -1,4 +1,6 @@
 <!-- BEGIN_TF_DOCS -->
+<!-- markdownlint-disable -->
+<!-- prettier-ignore-start -->
 # Data Factory Glue Database
 This module creates an Glue Database. It also conditionally creates a Lake Formation resource for the S3 location.
 
@@ -55,4 +57,6 @@ No modules.
 ## Outputs
 
 No outputs.
+<!-- prettier-ignore-end -->
+<!-- markdownlint-enable -->
 <!-- END_TF_DOCS -->

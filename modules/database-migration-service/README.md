@@ -134,6 +134,8 @@ Glue/metadata schemas stay in sync.
 <!-- textlint-disable -->
 
 <!-- BEGIN_TF_DOCS -->
+<!-- markdownlint-disable -->
+<!-- prettier-ignore-start -->
 ## Requirements
 
 | Name | Version |
@@ -145,7 +147,7 @@ Glue/metadata schemas stay in sync.
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.52.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 6.42 |
 
 ## Modules
 
@@ -288,6 +290,8 @@ Glue/metadata schemas stay in sync.
 | <a name="output_metadata_generator_lambda_arn"></a> [metadata\_generator\_lambda\_arn](#output\_metadata\_generator\_lambda\_arn) | The ARN for the metadata\_generator AWS Lambda function |
 | <a name="output_terraform_rules"></a> [terraform\_rules](#output\_terraform\_rules) | n/a |
 | <a name="output_validation_lambda_arn"></a> [validation\_lambda\_arn](#output\_validation\_lambda\_arn) | The ARN for the validation AWS Lambda function |
+<!-- prettier-ignore-end -->
+<!-- markdownlint-enable -->
 <!-- END_TF_DOCS -->
 
 <!-- prettier-ignore-end -->

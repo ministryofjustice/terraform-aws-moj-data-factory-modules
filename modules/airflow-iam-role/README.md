@@ -39,10 +39,9 @@ module "data_platform_airflow_iam_role" {
 }
 ```
 
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
-
 <!-- BEGIN_TF_DOCS -->
+<!-- markdownlint-disable -->
+<!-- prettier-ignore-start -->
 ## Requirements
 
 | Name | Version |
@@ -89,7 +88,6 @@ No modules.
 | <a name="output_role_arn"></a> [role\_arn](#output\_role\_arn) | ARN of the IAM role |
 | <a name="output_role_name"></a> [role\_name](#output\_role\_name) | Name of the IAM role |
 | <a name="output_role_unique_id"></a> [role\_unique\_id](#output\_role\_unique\_id) | Stable and unique string identifying the IAM role |
-<!-- END_TF_DOCS -->
-
-<!-- markdownlint-enable -->
 <!-- prettier-ignore-end -->
+<!-- markdownlint-enable -->
+<!-- END_TF_DOCS -->
