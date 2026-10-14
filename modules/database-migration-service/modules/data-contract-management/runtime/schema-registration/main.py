@@ -78,125 +78,20 @@ def validate_required_metadata(contract):
         )
 
 
-def canonicalise_type(
-    avro_type,
-):
-    nullable = False
-
-    if (
-        isinstance(avro_type, list)
-        and "null" in avro_type
-    ):
-        nullable = True
-
-        non_null_types = [
-            t
-            for t in avro_type
-            if t != "null"
-        ]
-
-        if len(non_null_types) != 1:
-            raise ValueError(
-                f"Unsupported Avro union type: "
-                f"{avro_type}"
-            )
-
-        avro_type = non_null_types[0]
-
-    if isinstance(avro_type, dict):
-
-        return (
-            avro_type["type"],
-            avro_type.get(
-                "logicalType"
-            ),
-            nullable,
-        )
-
-    return (
-        avro_type,
-        None,
-        nullable,
-    )
-
-
-def canonicalise_schema(
-    schema: dict,
-) -> dict:
-    """
-    Produces a canonical schema representation.
-
-    Keeps:
-        field name
-        field type
-        logical type
-        nullability
-
-    Ignores:
-        namespace
-        service
-        source
-        description
-        contacts
-        default
-        key
-        version
-    """
-
-    canonical_fields = []
-
-    for field in schema["fields"]:
-
-        (
-            base_type,
-            logical_type,
-            nullable,
-        ) = canonicalise_type(
-            field["type"]
-        )
-
-        canonical_fields.append(
-            {
-                "name": field["name"],
-                "type": base_type,
-                "logical_type": logical_type,
-                "nullable": nullable,
-            }
-        )
-
-    return {
-        "fields": canonical_fields
-    }
-
-def generate_schema_fingerprint(
-    schema: dict,
-) -> str:
-
-    canonical_schema = (
-        canonicalise_schema(
-            schema
-        )
-    )
-
-    payload = json.dumps(
-        canonical_schema,
+def normalise_contract(contract):
+    return json.dumps(
+        contract,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
         allow_nan=False,
     )
 
-    logger.debug(
-        "Canonical schema used for fingerprint generation: %s",
-        json.dumps(
-            canonical_schema,
-            indent=2,
-            sort_keys=True,
-        ),
-    )
 
+def calculate_contract_fingerprint(contract):
+    normalised = normalise_contract(contract)
     return hashlib.sha256(
-        payload.encode("utf-8")
+        normalised.encode("utf-8")
     ).hexdigest()
 
 
@@ -307,24 +202,30 @@ def build_result(status, registered, contract):
 
     return result
 
-def extract_metadata_from_key(
-    object_key: str,
-) -> dict:
-
+def extract_metadata_from_key(object_key: str) -> dict:
     parts = object_key.split("/")
 
-    if len(parts) < 5:
+    if (
+        len(parts) != 6
+        or any(not part for part in parts)
+        or parts[-1] != "contract.avsc"
+    ):
         raise ValueError(
-            f"Unexpected object key format: {object_key}"
+            "Unexpected contract object key. Expected "
+            "source/database/schema/table/contract_version/"
+            f"contract.avsc, received: {object_key}"
         )
 
-    return {
+    metadata = {
         "source": parts[0],
         "database_name": parts[1],
         "schema_name": parts[2],
         "table_name": parts[3],
-        "prefix": "/".join(parts[:-1]),
+        "contract_version": parts[4],
     }
+
+    validate_required_metadata(metadata)
+    return metadata
 
 def process_record(record, context):
     log_context = {
@@ -354,25 +255,22 @@ def process_record(record, context):
         )
         validate_required_metadata(contract)
 
-        #extract metadata
-        metadata = extract_metadata_from_key(
-            object_key,
-        )
+        path_metadata = extract_metadata_from_key(object_key)
 
-        source = metadata["source"]
-        database_name = metadata["database_name"]
-        schema_name = metadata["schema_name"]
-        table_name = metadata["table_name"]
+        mismatched_fields = [
+            field
+            for field in REQUIRED_METADATA
+            if path_metadata[field] != contract[field]
+        ]
 
-        contract_id = build_contract_id(metadata)
-        logger.info(f"source -->{source}, database_name---->{database_name}, schema_name ---------->{schema_name} , table_name --------{table_name}")
-        logger.info(f"contract_id ------->{contract_id}")
+        if mismatched_fields:
+            raise ValueError(
+                "Contract metadata does not match its S3 path for: "
+                + ", ".join(mismatched_fields)
+            )
 
-
-        schema_fingerprint = generate_schema_fingerprint(contract)
-
-
-        logger.info(f"schema_fingerprint ------->{schema_fingerprint}")
+        contract_id = build_contract_id(contract)
+        fingerprint = calculate_contract_fingerprint(contract)
 
       
         contract_uri = f"s3://{bucket_name}/{object_key}"
@@ -392,7 +290,7 @@ def process_record(record, context):
             "database_name": contract["database_name"],
             "schema_name": contract["schema_name"],
             "table_name": contract["table_name"],
-            "schema_fingerprint": schema_fingerprint,
+            "schema_fingerprint": fingerprint,
             "s3_contract_uri": contract_uri,
             "registered_at": datetime.now(timezone.utc).isoformat(),
             "registration_execution_id": log_context["execution_id"],

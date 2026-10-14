@@ -6,7 +6,7 @@ import json
 import boto3
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pyarrow.fs
+import io
 import re
 
 from datetime import datetime, timezone
@@ -143,7 +143,10 @@ def arrow_type_to_avro(
         return "long"
 
     if pa.types.is_uint64(field_type):
-        return "long"
+        raise ValueError(
+            "Unsigned 64-bit integers cannot be represented "
+            "safely as Avro long."
+        )
 
     if pa.types.is_float32(field_type):
         return "float"
@@ -170,12 +173,16 @@ def arrow_type_to_avro(
         }
 
     if pa.types.is_timestamp(field_type):
+        if field_type.unit == "ns":
+            raise ValueError(
+                "Nanosecond timestamps are not supported "
+                "by the current schema comparison policy."
+            )
 
         timestamp_mapping = {
             "us": "timestamp-micros",
             "ms": "timestamp-millis",
             "s": "timestamp-millis",
-            "ns": "timestamp-micros",
         }
 
         logical_type = timestamp_mapping.get(
@@ -202,11 +209,19 @@ def arrow_type_to_avro(
         }
 
     if pa.types.is_list(field_type):
+        element_field = field_type.value_field
+
+        element_type = arrow_type_to_avro(
+            element_field.type,
+            f"{field_name or 'array'}_item",
+        )
+
+        if element_field.nullable and element_type != "null":
+            element_type = ["null", element_type]
+
         return {
             "type": "array",
-            "items": arrow_type_to_avro(
-                field_type.value_type
-            ),
+            "items": element_type,
         }
 
     if pa.types.is_struct(field_type):
@@ -296,52 +311,132 @@ def build_avro_schema(
     }
 
 
+class S3ObjectReader(io.RawIOBase):
+    MAX_READ_BYTES = 64 * 1024 * 1024
+
+    def __init__(
+        self,
+        bucket,
+        key,
+        version_id=None,
+        expected_etag=None,
+    ):
+        super().__init__()
+
+        self._request = {
+            "Bucket": bucket,
+            "Key": key,
+        }
+
+        if version_id is not None:
+            self._request["VersionId"] = version_id
+
+        if expected_etag:
+            self._request["IfMatch"] = (
+                '"' + expected_etag.strip('"') + '"'
+            )
+
+        response = s3.head_object(**self._request)
+
+        self._size = response["ContentLength"]
+        self._position = 0
+
+        self._request["IfMatch"] = response["ETag"]
+
+        resolved_version = response.get("VersionId")
+        if resolved_version is not None:
+            self._request["VersionId"] = resolved_version
+
+    def readable(self):
+        return True
+
+    def seekable(self):
+        return True
+
+    def tell(self):
+        self._checkClosed()
+        return self._position
+
+    def seek(self, offset, whence=io.SEEK_SET):
+        self._checkClosed()
+
+        if whence == io.SEEK_SET:
+            position = offset
+        elif whence == io.SEEK_CUR:
+            position = self._position + offset
+        elif whence == io.SEEK_END:
+            position = self._size + offset
+        else:
+            raise ValueError(f"Unsupported seek mode: {whence}")
+
+        if position < 0:
+            raise ValueError("Cannot seek before the start of the object.")
+
+        self._position = position
+        return position
+
+    def read(self, size=-1):
+        self._checkClosed()
+
+        remaining = max(0, self._size - self._position)
+
+        if size is None or size < 0:
+            size = remaining
+        else:
+            size = min(size, remaining)
+
+        if size == 0:
+            return b""
+
+        if size > self.MAX_READ_BYTES:
+            raise ValueError(
+                "Parquet schema reading requested more than "
+                "64 MiB in one read. This file requires review."
+            )
+
+        start = self._position
+        end = start + size - 1
+
+        response = s3.get_object(
+            **self._request,
+            Range=f"bytes={start}-{end}",
+        )
+
+        body = response["Body"]
+        try:
+            data = body.read(size)
+        finally:
+            body.close()
+
+        if len(data) != size:
+            raise IOError(
+                "Incomplete S3 range read while reading Parquet schema."
+            )
+
+        self._position += len(data)
+        return data
+
+    def readinto(self, buffer):
+        data = self.read(len(buffer))
+        buffer[:len(data)] = data
+        return len(data)
+
+
 def read_parquet_schema_from_s3(
     bucket: str,
     key: str,
+    version_id=None,
+    expected_etag=None,
 ) -> pa.Schema:
-    """
-    Read schema only from parquet footer.
-    """
-
-    s3fs = pyarrow.fs.S3FileSystem()
-
-    with s3fs.open_input_file(
-        f"{bucket}/{key}"
-    ) as f:
-
-        parquet_file = pq.ParquetFile(f)
-
+    """Read Parquet metadata using a pinned seekable S3 object."""
+    with S3ObjectReader(
+        bucket=bucket,
+        key=key,
+        version_id=version_id,
+        expected_etag=expected_etag,
+    ) as reader:
+        parquet_file = pq.ParquetFile(reader)
         return parquet_file.schema_arrow
-
-"""
-#TB used for FULL load ..yest to be implemented.
-def list_parquet_files(
-    bucket: str,
-    prefix: str,
-) -> list[str]:
-   
-    keys = []
-
-    paginator = s3.get_paginator(
-        "list_objects_v2"
-    )
-
-    for page in paginator.paginate(
-        Bucket=bucket,
-        Prefix=prefix,
-    ):
-
-        for item in page.get("Contents", []):
-
-            key = item["Key"]
-
-            if key.endswith(".parquet"):
-                keys.append(key)
-
-    return keys
-"""
-
 
 
 def validate_avro_name(value, label):
@@ -356,6 +451,7 @@ def validate_avro_name(value, label):
             "Source identifiers requiring renaming are not "
             "supported yet."
         )
+
 def generate_avro_schema(
     bucket_name: str,
     object_key: str,
@@ -363,49 +459,27 @@ def generate_avro_schema(
     database_name: str,
     schema_name: str,
     table_name: str,
+    version_id=None,
+    expected_etag=None,
 ) -> dict:
-    """
-    Generate Avro schema from Parquet file.
-    """
+    """Generate a temporary Avro schema from the incoming Parquet file."""
+    parquet_schema = read_parquet_schema_from_s3(
+        bucket=bucket_name,
+        key=object_key,
+        version_id=version_id,
+        expected_etag=expected_etag,
+    )
 
-    parquet_schema = (
-        read_parquet_schema_from_s3(
-            bucket=bucket_name,
-            key=object_key,
-        )
-    )    
-
-    validate_avro_name(
-        source,
-        "Source",
-    )
-    validate_avro_name(
-        database_name,
-        "Database",
-    )
-    validate_avro_name(
-        schema_name,
-        "Schema",
-    )
-    validate_avro_name(
-        table_name,
-        "Table",
-    )
+    validate_avro_name(table_name, "Table")
 
     avro_schema = build_avro_schema(
         parquet_schema=parquet_schema,
         record_name=table_name,
-        namespace=(
-            f"{source}."
-            f"{database_name}."
-            f"{schema_name}"
-        ),
+        namespace="uk.gov.justice.validation",
     )
-     
 
     logger.info(
-        "Generated Avro schema "
-        "for %s.%s.%s",
+        "Generated Avro schema for %s.%s.%s",
         database_name,
         schema_name,
         table_name,
@@ -413,49 +487,91 @@ def generate_avro_schema(
 
     return avro_schema
 
-def extract_metadata_from_key(
-    object_key: str,
-) -> dict:
+def resolve_source_metadata(bucket_name: str, object_key: str) -> dict:
+    raw_mappings = os.environ.get("SOURCE_MAPPINGS")
 
-    parts = object_key.split("/")
-
-    if len(parts) < 5:
+    if not raw_mappings:
         raise ValueError(
-            f"Unexpected object key format: {object_key}"
+            "SOURCE_MAPPINGS must contain the configured "
+            "incoming S3 locations and contract identities."
+        )
+
+    try:
+        mappings = json.loads(raw_mappings)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "SOURCE_MAPPINGS must be valid JSON."
+        ) from error
+
+    if not isinstance(mappings, list) or not mappings:
+        raise ValueError(
+            "SOURCE_MAPPINGS must be a non-empty list."
+        )
+
+    matches = []
+
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            raise ValueError(
+                "Each source mapping must be an object."
+            )
+
+        validate_required_metadata(mapping)
+
+        configured_bucket = mapping.get("bucket_name")
+        prefix = mapping.get("prefix")
+
+        if (
+            not isinstance(configured_bucket, str)
+            or not configured_bucket
+            or configured_bucket != configured_bucket.strip()
+        ):
+            raise ValueError(
+                "Each source mapping requires a valid bucket_name."
+            )
+
+        if (
+            not isinstance(prefix, str)
+            or not prefix
+            or prefix != prefix.strip()
+            or prefix.startswith("/")
+            or not prefix.endswith("/")
+        ):
+            raise ValueError(
+                "Each source mapping requires a non-empty prefix "
+                "with no leading slash and a trailing slash."
+            )
+
+        if (
+            bucket_name == configured_bucket
+            and object_key.startswith(prefix)
+            and len(object_key) > len(prefix)
+        ):
+            matches.append(mapping)
+
+    if len(matches) != 1:
+        raise ValueError(
+            "Expected exactly one source mapping for "
+            f"s3://{bucket_name}/{object_key}; "
+            f"found {len(matches)}."
         )
 
     return {
-        "source": parts[0],
-        "database_name": parts[1],
-        "schema_name": parts[2],
-        "table_name": parts[3],
-        "prefix": "/".join(parts[:-1]),
+        field: matches[0][field]
+        for field in REQUIRED_METADATA
     }
 
-def extract_version_number(
-    contract_version: str,
-) -> int:
-
-    if not isinstance(contract_version, str):
+def extract_version_number(contract_version: str) -> int:
+    if (
+        not isinstance(contract_version, str)
+        or not re.fullmatch(r"v[1-9][0-9]*", contract_version)
+    ):
         raise ValueError(
-            f"Invalid contract version: "
-            f"{contract_version}"
+            "Invalid contract version. Expected v1, v2, etc., "
+            "with no whitespace or leading zeros."
         )
 
-    match = re.fullmatch(
-        r"v(\d+)",
-        contract_version.strip(),
-    )
-
-    if not match:
-        raise ValueError(
-            f"Invalid contract version format: "
-            f"{contract_version}. "
-            f"Expected format 'v<number>'."
-        )
-
-    return int(match.group(1))
-
+    return int(contract_version[1:])
 
 
 def validate_generated_contract(
@@ -555,95 +671,151 @@ def validate_avro_schema(
         ) from exc
 
 
-def canonicalise_type(
-    avro_type,
-):
-    nullable = False
+def canonicalise_type(avro_type):
+    primitive_types = {
+        "null",
+        "boolean",
+        "int",
+        "long",
+        "float",
+        "double",
+        "bytes",
+        "string",
+    }
 
-    if (
-        isinstance(avro_type, list)
-        and "null" in avro_type
-    ):
-        nullable = True
-
+    if isinstance(avro_type, list):
         non_null_types = [
-            t
-            for t in avro_type
-            if t != "null"
+            value for value in avro_type if value != "null"
         ]
 
-        if len(non_null_types) != 1:
+        if (
+            len(non_null_types) != 1
+            or len(avro_type) != 2
+            or "null" not in avro_type
+        ):
             raise ValueError(
-                f"Unsupported Avro union type: "
-                f"{avro_type}"
+                f"Unsupported Avro union for comparison: {avro_type}"
             )
 
-        avro_type = non_null_types[0]
+        return {
+            "nullable": True,
+            "value": canonicalise_type(non_null_types[0]),
+        }
 
-    if isinstance(avro_type, dict):
+    if isinstance(avro_type, str):
+        if avro_type not in primitive_types:
+            raise ValueError(
+                "Named Avro type references are not supported "
+                f"for comparison yet: {avro_type}"
+            )
 
-        return (
-            avro_type["type"],
-            avro_type.get(
-                "logicalType"
-            ),
-            nullable,
+        return {"type": avro_type}
+
+    if not isinstance(avro_type, dict):
+        raise ValueError(
+            f"Unsupported Avro type for comparison: {avro_type}"
         )
 
-    return (
-        avro_type,
-        None,
-        nullable,
-    )
+    base_type = avro_type.get("type")
+
+    if not isinstance(base_type, str):
+        raise ValueError(
+            f"Unsupported Avro type definition: {avro_type}"
+        )
+
+    result = {"type": base_type}
+
+    if base_type == "array":
+        result["items"] = canonicalise_type(avro_type["items"])
+    elif base_type == "map":
+        result["values"] = canonicalise_type(avro_type["values"])
+    elif base_type == "record":
+        result["fields"] = canonicalise_schema(avro_type)["fields"]
+    elif base_type == "enum":
+        result["symbols"] = list(avro_type["symbols"])
+    elif base_type == "fixed":
+        result["size"] = avro_type["size"]
+    elif base_type not in primitive_types:
+        raise ValueError(
+            f"Unsupported Avro base type for comparison: {base_type}"
+        )
+
+    logical_type = avro_type.get("logicalType")
+
+    if logical_type is not None:
+        supported_logical_types = {
+            "decimal",
+            "date",
+            "time-millis",
+            "time-micros",
+            "timestamp-millis",
+            "timestamp-micros",
+            "timestamp-nanos",
+            "local-timestamp-millis",
+            "local-timestamp-micros",
+            "local-timestamp-nanos",
+            "uuid",
+            "duration",
+        }
+
+        if logical_type not in supported_logical_types:
+            raise ValueError(
+                "Unsupported logical type for comparison: "
+                f"{logical_type}"
+            )
+
+        result["logical_type"] = logical_type
+
+        if logical_type == "decimal":
+            result["precision"] = avro_type["precision"]
+            result["scale"] = avro_type.get("scale", 0)
+
+    return result
 
 
-def canonicalise_schema(
-    schema: dict,
-) -> dict:
-    """
-    Produces a canonical schema representation.
+def canonicalise_schema(schema: dict) -> dict:
+    if not isinstance(schema, dict) or schema.get("type") != "record":
+        raise ValueError(
+            "Schema comparison requires an Avro record."
+        )
 
-    Keeps:
-        field name
-        field type
-        logical type
-        nullability
+    fields = schema.get("fields")
 
-    Ignores:
-        namespace
-        service
-        source
-        description
-        contacts
-        default
-        key
-        version
-    """
+    if not isinstance(fields, list) or not fields:
+        raise ValueError(
+            "Schema comparison requires a non-empty fields list."
+        )
 
     canonical_fields = []
+    seen_names = set()
 
-    for field in schema["fields"]:
+    for field in fields:
+        if not isinstance(field, dict):
+            raise ValueError("Each schema field must be an object.")
 
-        (
-            base_type,
-            logical_type,
-            nullable,
-        ) = canonicalise_type(
-            field["type"]
-        )
+        field_name = field.get("name")
+        validate_avro_name(field_name, "Field")
+
+        if field_name in seen_names:
+            raise ValueError(
+                f"Duplicate field name: {field_name}"
+            )
+
+        seen_names.add(field_name)
+
+        if "type" not in field:
+            raise ValueError(
+                f"Field '{field_name}' is missing its type."
+            )
 
         canonical_fields.append(
             {
-                "name": field["name"],
-                "type": base_type,
-                "logical_type": logical_type,
-                "nullable": nullable,
+                "name": field_name,
+                "type": canonicalise_type(field["type"]),
             }
         )
 
-    return {
-        "fields": canonical_fields
-    }
+    return {"fields": canonical_fields}
 
 def generate_schema_fingerprint(
     schema: dict,
@@ -761,42 +933,43 @@ def schema_diff(
 
     return differences
 
-def get_latest_contract(
-    contract_id: str,
-) -> dict | None:
-    """
-    Returns the contract with the highest
-    numeric contract version.
+def get_latest_contract(contract_id: str) -> dict | None:
+    request = {
+        "KeyConditionExpression": Key("contract_id").eq(contract_id),
+        "ConsistentRead": True,
+    }
 
-    Example:
-        v1, v2, v9, v10 -> returns v10
-    """
+    latest_contract = None
+    highest_version = -1
 
-    response = schema_audit_table.query(
-        KeyConditionExpression=
-            Key("contract_id").eq(contract_id),
-        ConsistentRead=True,
-    )
+    while True:
+        response = schema_audit_table.query(**request)
 
-    items = response.get("Items", [])
+        for item in response.get("Items", []):
+            version_number = extract_version_number(
+                item["contract_version"]
+            )
 
-    if not items:
-        return None
+            if version_number > highest_version:
+                highest_version = version_number
+                latest_contract = item
 
-    latest_contract = max(
-        items,
-        key=lambda item: extract_version_number(
-            item["contract_version"]
-        ),
-    )
+        last_key = response.get("LastEvaluatedKey")
 
-    logger.info(
-        "Latest contract selected. "
-        "contract_id=%s, "
-        "contract_version=%s",
-        contract_id,
-        latest_contract["contract_version"],
-    )
+        if not last_key:
+            break
+
+        request["ExclusiveStartKey"] = last_key
+
+    if latest_contract is not None:
+        logger.info(
+            "Registered contract selected.",
+            extra={
+                "contract_id": contract_id,
+                "contract_version": latest_contract["contract_version"],
+                "selection_policy": "highest_registered_version",
+            },
+        )
 
     return latest_contract
 
@@ -854,263 +1027,287 @@ def parse_s3_uri(s3_uri: str) -> tuple[str, str]:
         object_key,
     )
 
+class SchemaValidationFailure(ValueError):
+    def __init__(self, error_type, message):
+        super().__init__(message)
+        self.error_type = error_type
 
+
+def build_validation_id(bucket, key, object_details):
+    version_id = object_details.get("versionId")
+
+    if version_id is not None:
+        object_identity = {
+            "version_id": version_id,
+            "etag": object_details.get("eTag"),
+            "sequencer": object_details.get("sequencer"),
+        }
+    else:
+        etag = object_details.get("eTag")
+        sequencer = object_details.get("sequencer")
+
+        if not etag or not sequencer:
+            raise ValueError(
+                "An unversioned S3 event must include "
+                "eTag and sequencer to identify the incoming object."
+            )
+
+        object_identity = {
+            "etag": etag,
+            "sequencer": sequencer,
+        }
+
+    payload = json.dumps(
+        {
+            "bucket": bucket,
+            "key": key,
+            "object": object_identity,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def write_validation_result(item):
+    validation_audit_table.put_item(Item=item)
 
 def process_event(record, context):
-    log_context = {
-        "execution_id": getattr(context, "aws_request_id", None),
-    }
+    execution_id = getattr(context, "aws_request_id", None)
+    log_context = {"execution_id": execution_id}
+    item = None
 
     try:
         bucket_name = record["s3"]["bucket"]["name"]
         object_details = record["s3"]["object"]
-        object_key = urllib.parse.unquote_plus(object_details["key"])
+        object_key = urllib.parse.unquote_plus(
+            object_details["key"]
+        )
         version_id = object_details.get("versionId")
+
+        validation_id = build_validation_id(
+            bucket_name,
+            object_key,
+            object_details,
+        )
+
+        item = {
+            "validation_id": validation_id,
+            "s3_object_uri": f"s3://{bucket_name}/{object_key}",
+            "bucket_name": bucket_name,
+            "object_key": object_key,
+            "s3_object_version_id": version_id,
+            "object_etag": object_details.get("eTag"),
+            "object_sequencer": object_details.get("sequencer"),
+            "ingestion_type": INGESTION_TYPE,
+            "validation_execution_id": execution_id,
+            "validation_timestamp": datetime.now(
+                timezone.utc
+            ).isoformat(),
+            "comparison_policy": "field_structure_v1",
+            "contract_selection_policy": (
+                "highest_registered_version"
+            ),
+        }
 
         log_context.update(
             {
+                "validation_id": validation_id,
                 "bucket_name": bucket_name,
                 "object_key": object_key,
                 "s3_object_version_id": version_id,
             }
         )
 
-        logger.info("Schema Validation started.", extra=log_context)
-
-        #extract metadata
-        metadata = extract_metadata_from_key(
-            object_key,
-        )
-
-        source = metadata["source"]
-        database_name = metadata["database_name"]
-        schema_name = metadata["schema_name"]
-        table_name = metadata["table_name"]
-        
-        #Validate metadata
-        validate_required_metadata(metadata)
-
-        #Build contract_id
-        contract_id = build_contract_id(metadata)
-
-        logger.info(f"source -->{source}, database_name---->{database_name}, schema_name ---------->{schema_name} , table_name --------{table_name}")
-        logger.info(f"contract_id ------->{contract_id}")
-        #generate contarct from S3
-        contract = generate_avro_schema(
-            bucket_name=bucket_name,
-            object_key=object_key,
-            source=source,
-            database_name=database_name,
-            schema_name=schema_name,
-            table_name=table_name,
-        )
-
         logger.info(
-            json.dumps(
-                contract,
-                indent=2,
-            )
-        )
-        
-        validate_avro_schema(contract)
-
-        #Retrieve existing contract_id and schema finger print from dynamodb
-        latest_contract = get_latest_contract(
-            contract_id
-        )
-        if latest_contract is None:
-            error_details = {
-                "error_type": "CONTRACT_NOT_FOUND",
-                "contract_id": contract_id,
-                "source": source,
-                "bucket_name": bucket_name,
-                "object_key": object_key,
-                "object_version_id": version_id,
-            }
-
-            logger.warning(
-                "No registered contract found.",
-                extra=error_details,
-            )
-            raise ValueError(
-                f"No contract found for {contract_id}"
-            )
-        # Get S3 path from Dynamo db passing contract_Id and fetch latest record
-
-        registered_s3_path = (
-            latest_contract.get(
-                "s3_contract_uri"
-            )
-        )
-        logger.info(f"registered_s3_path ------>{registered_s3_path}")
-        # Read registred contract from S3
-        registered_bucket , registered_object_key = parse_s3_uri(registered_s3_path)
-        registered_contract, regis_object_version_id = read_contract(
-            registered_bucket,
-            registered_object_key,
-        )
-
-        logger.info(
-            "Registered contract location. "
-            "bucket=%s key=%s",
-            registered_bucket,
-            registered_object_key,
-        )
-
-        # Convert canonical form
-        '''
-        schemas_match = compare_schemas(
-            registered_contract,
-            contract,
-        )
-        '''
-        new_fingerprint = (
-            generate_schema_fingerprint(
-                contract
-            )
-        )
-
-        registered_fingerprint = (
-            generate_schema_fingerprint(
-                registered_contract
-            )
-        )
-
-        #if not schemas_match: - to be added for logging.error - TO BE WORKED ON
-        '''
-        logger.info(
-            "Registered contract loaded: %s",
-            json.dumps(
-                registered_contract,
-                indent=2,
-                sort_keys=True,
-            ),
-        )
-
-        logger.info(
-            "Generated contract from parquet: %s",
-            json.dumps(
-                contract,
-                indent=2,
-                sort_keys=True,
-            ),
-        )
-        logger.info(
-            "Schema comparison result. "
-            "schemas_match=%s, "
-            "registered_fingerprint=%s, "
-            "generated_fingerprint=%s",
-            schemas_match,
-            registered_fingerprint,
-            new_fingerprint,
-        )
-
-        logger.info(
-            "Registered canonical schema: %s",
-            json.dumps(
-                canonicalise_schema(
-                    registered_contract
-                ),
-                indent=2,
-                sort_keys=True,
-            ),
-        )
-
-        logger.info(
-            "Generated canonical schema: %s",
-            json.dumps(
-                canonicalise_schema(
-                    contract
-                ),
-                indent=2,
-                sort_keys=True,
-            ),
-        )
-        '''
-        contract_version = registered_contract["contract_version"]
-        ingestion_version = f"ING_{contract_version}"
-        timestamp = datetime.now(
-                timezone.utc
-        ).isoformat()
-
-
-        item = {
-            "contract_id": contract_id,
-            "contract_version": contract_version,
-            "source": source,
-            "database_name": database_name,
-            "schema_name": schema_name,
-            "table_name": table_name,
-            "schema_fingerprint": new_fingerprint,
-            "s3_object_uri": (
-                f"s3://{bucket_name}/{object_key}"
-            ),
-            "s3_object_version_id": version_id,
-            "validation_timestamp": timestamp,
-            "ingestion_version": (
-                f"ING_{contract_version}"
-            ),
-            
-        }
-        
-        if not registered_fingerprint:
-            raise ValueError(
-                f"schema_fingerprint not found for "
-                f"contract_id={contract_id}"
-            )
-
-        if (registered_fingerprint != new_fingerprint):
-            item["validation_status"] = "FAIL"
-            item["validation_summary"] = "Schema not matched"
-            item["registered_schema_fingerprint"] = registered_fingerprint
-
-            validation_audit_table.put_item(
-                Item=item
-            )
-
-            logger.error(
-                "Schema validation failed. "
-                "Contract fingerprint mismatch. "
-                "contract_id=%s, version=%s, "
-                "expected=%s, actual=%s",
-                contract_id,
-                latest_contract["contract_version"],
-                registered_fingerprint,
-                new_fingerprint,
-            )
-
-            raise ValueError(
-                "Incoming schema does not match the latest "
-                f"registered contract. Expected fingerprint "
-                f"'{registered_fingerprint}' but received "
-                f"'{new_fingerprint}'."
-            )
-        
-        item["validation_status"] = "SUCCESS"
-        item["validation_summary"] = "Schema matched"
-
-        validation_audit_table.put_item(
-            Item=item
-        )
-
-        logger.info(
-            "Schema validation successful. "
-            "contract_id=%s version=%s",
-            contract_id,
-            contract_version,
-        )
-        return {
-            "contract_id": contract_id, 
-            "contract_version": contract_version,
-            "ingestion_version": ingestion_version,
-            "validation_status": "SUCCESS",
-        }
-    except Exception:
-        logger.exception(
-            "Schema Validation failed.",
+            "Schema validation started.",
             extra=log_context,
         )
-        raise        
+
+        metadata = resolve_source_metadata(
+            bucket_name,
+            object_key,
+        )
+        validate_required_metadata(metadata)
+
+        contract_id = build_contract_id(metadata)
+
+        item.update({
+            field: metadata[field]
+            for field in REQUIRED_METADATA
+        })
+        item["contract_id"] = contract_id
+        log_context["contract_id"] = contract_id
+
+        latest_contract = get_latest_contract(contract_id)
+
+        if latest_contract is None:
+            raise SchemaValidationFailure(
+                "CONTRACT_NOT_FOUND",
+                f"No registered contract found for {contract_id}.",
+            )
+
+        contract_version = latest_contract["contract_version"]
+        item["contract_version"] = contract_version
+
+        registered_uri = latest_contract.get("s3_contract_uri")
+        registered_bucket, registered_key = parse_s3_uri(
+            registered_uri
+        )
+
+        registered_contract, registered_version_id = read_contract(
+            registered_bucket,
+            registered_key,
+            latest_contract.get("s3_object_version_id"),
+        )
+
+        item["s3_contract_uri"] = registered_uri
+        item["registered_contract_object_version_id"] = (
+            registered_version_id
+        )
+
+        validate_required_metadata(registered_contract)
+        validate_avro_schema(registered_contract)
+
+        identity_mismatches = [
+            field
+            for field in REQUIRED_METADATA
+            if registered_contract[field] != metadata[field]
+        ]
+
+        if (
+            identity_mismatches
+            or build_contract_id(registered_contract) != contract_id
+            or latest_contract.get("contract_id") != contract_id
+        ):
+            raise SchemaValidationFailure(
+                "CONTRACT_IDENTITY_MISMATCH",
+                "The registered contract does not match "
+                "the incoming source identity."
+                + (
+                    " Mismatched fields: "
+                    + ", ".join(identity_mismatches)
+                    if identity_mismatches
+                    else ""
+                ),
+            )
+
+        if (
+            registered_contract.get("contract_version")
+            != contract_version
+        ):
+            raise SchemaValidationFailure(
+                "CONTRACT_VERSION_MISMATCH",
+                "The loaded contract version does not match "
+                "the selected registry record.",
+            )
+
+        incoming_schema = generate_avro_schema(
+            bucket_name=bucket_name,
+            object_key=object_key,
+            source=metadata["source"],
+            database_name=metadata["database_name"],
+            schema_name=metadata["schema_name"],
+            table_name=metadata["table_name"],
+            version_id=version_id,
+            expected_etag=object_details.get("eTag"),
+        )
+
+        validate_avro_schema(incoming_schema)
+
+        incoming_fingerprint = generate_schema_fingerprint(
+            incoming_schema
+        )
+        registered_fingerprint = generate_schema_fingerprint(
+            registered_contract
+        )
+
+        item["schema_fingerprint"] = incoming_fingerprint
+        item["registered_schema_fingerprint"] = (
+            registered_fingerprint
+        )
+
+        if incoming_fingerprint != registered_fingerprint:
+            differences = schema_diff(
+                registered_contract,
+                incoming_schema,
+            )
+
+            if not differences:
+                differences = [
+                    "Field order differs between the schemas."
+                ]
+
+            item["schema_differences"] = differences
+            item["comparison_outcome"] = "SCHEMA_CHANGED"
+
+            raise SchemaValidationFailure(
+                "SCHEMA_MISMATCH",
+                "Incoming schema does not match the "
+                "selected registered contract.",
+            )
+
+        item["comparison_outcome"] = "NO_CHANGE"
+        item["validation_status"] = "SUCCESS"
+        item["validation_summary"] = "Schema matched."
+        item["schema_differences"] = []
+
+        write_validation_result(item)
+
+        logger.info(
+            "Schema validation successful.",
+            extra={
+                **log_context,
+                "contract_version": contract_version,
+            },
+        )
+
+        return {
+            "validation_id": validation_id,
+            "contract_id": contract_id,
+            "contract_version": contract_version,
+            "validation_status": "SUCCESS",
+            "comparison_outcome": "NO_CHANGE",
+            "bucket_name": bucket_name,
+            "object_key": object_key,
+            "s3_object_version_id": version_id,
+            "schema_fingerprint": incoming_fingerprint,
+            "registered_schema_fingerprint": registered_fingerprint,
+            "s3_contract_uri": registered_uri,
+            "registered_contract_object_version_id": (
+                registered_version_id
+            ),
+        }
+
+    except Exception as error:
+        if item is not None:
+            item["validation_status"] = "FAIL"
+            item["validation_summary"] = str(error)
+            item["error_type"] = getattr(
+                error,
+                "error_type",
+                "VALIDATION_PROCESSING_ERROR",
+            )
+            item.setdefault(
+                "comparison_outcome",
+                "NOT_COMPLETED",
+            )
+
+            try:
+                write_validation_result(item)
+            except Exception:
+                logger.exception(
+                    "Could not persist the failed validation result.",
+                    extra=log_context,
+                )
+
+        logger.exception(
+            "Schema validation failed.",
+            extra=log_context,
+        )
+        raise
+
 def lambda_handler(event, context):
 
     if not isinstance(event, dict):
@@ -1123,10 +1320,8 @@ def lambda_handler(event, context):
             "Expected an S3 event containing a non-empty Records list."
         )
     
-    #Full Load 
+# FULL and CDC both validate each incoming object.
 
-
-    #CDC flow
     results = []
     for record in records:
         try:
