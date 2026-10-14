@@ -32,7 +32,7 @@ def contract(version="v1"):
     }
 
 
-def record(key="contracts/example/v1/contract.avsc", version_id=None):
+def record(key="example-service/example_db/public/example_table/v1/contract.avsc", version_id=None,):
     object_details = {"key": key}
     if version_id is not None:
         object_details["versionId"] = version_id
@@ -145,7 +145,7 @@ def test_duplicate_does_not_skip_next_record(aws, context):
         {
             "Records": [
                 record(),
-                record("contracts/second/v1/contract.avsc"),
+                record("example-service/example_db/public/second_table/v1/contract.avsc"),
             ]
         },
         context,
@@ -284,7 +284,10 @@ def test_reads_event_object_version_and_decodes_key(aws, context):
 
     result = main.process_record(
         record(
-            key="contracts%2Fexample+contract.avsc",
+            key=(
+                "example-service%2Fexample_db%2Fpublic%2F"
+                "example_table%2Fv1%2Fcontract.avsc"
+            ),
             version_id="object-version-123",
         ),
         context,
@@ -292,7 +295,10 @@ def test_reads_event_object_version_and_decodes_key(aws, context):
 
     s3.get_object.assert_called_once_with(
         Bucket="unit-test-bucket",
-        Key="contracts/example contract.avsc",
+        Key=(
+            "example-service/example_db/public/"
+            "example_table/v1/contract.avsc"
+        ),
         VersionId="object-version-123",
     )
     assert result["s3_object_version_id"] == "object-version-123"
@@ -329,3 +335,36 @@ def test_fingerprint_ignores_object_key_order():
 def test_invalid_event(event, context):
     with pytest.raises(ValueError):
         main.lambda_handler(event, context)
+
+def test_metadata_only_conflict_is_rejected(aws):
+    _, table = aws
+    original_contract = contract()
+    original_contract["contacts"] = {"owner": "original"}
+
+    existing = registration_item(original_contract)
+    changed = copy.deepcopy(original_contract)
+    changed["contacts"]["owner"] = "changed"
+
+    table.put_item.side_effect = aws_error(
+        "ConditionalCheckFailedException", "PutItem"
+    )
+    table.get_item.return_value = {"Item": existing}
+
+    with pytest.raises(ValueError, match="different content"):
+        main.register_contract(registration_item(changed))
+
+
+def test_path_identity_mismatch_does_not_write(aws, context):
+    s3, table = aws
+    s3.get_object.return_value = s3_response(contract())
+
+    with pytest.raises(ValueError, match="does not match its S3 path"):
+        main.process_record(
+            record(
+                "another-service/example_db/public/"
+                "example_table/v1/contract.avsc"
+            ),
+            context,
+        )
+
+    table.put_item.assert_not_called()

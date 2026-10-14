@@ -89,9 +89,10 @@ def normalise_contract(contract):
 
 
 def calculate_contract_fingerprint(contract):
-    """Hash the complete contract for duplicate/conflict detection."""
     normalised = normalise_contract(contract)
-    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        normalised.encode("utf-8")
+    ).hexdigest()
 
 
 def build_contract_id(contract):
@@ -100,6 +101,11 @@ def build_contract_id(contract):
         f"{contract['database_name']}:"
         f"{contract['schema_name']}:"
         f"{contract['table_name']}"
+    )
+
+    logger.info(
+        "Contract identity string: '%s'",
+        identity,
     )
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, identity))
 
@@ -196,6 +202,30 @@ def build_result(status, registered, contract):
 
     return result
 
+def extract_metadata_from_key(object_key: str) -> dict:
+    parts = object_key.split("/")
+
+    if (
+        len(parts) != 6
+        or any(not part for part in parts)
+        or parts[-1] != "contract.avsc"
+    ):
+        raise ValueError(
+            "Unexpected contract object key. Expected "
+            "source/database/schema/table/contract_version/"
+            f"contract.avsc, received: {object_key}"
+        )
+
+    metadata = {
+        "source": parts[0],
+        "database_name": parts[1],
+        "schema_name": parts[2],
+        "table_name": parts[3],
+        "contract_version": parts[4],
+    }
+
+    validate_required_metadata(metadata)
+    return metadata
 
 def process_record(record, context):
     log_context = {
@@ -225,8 +255,24 @@ def process_record(record, context):
         )
         validate_required_metadata(contract)
 
+        path_metadata = extract_metadata_from_key(object_key)
+
+        mismatched_fields = [
+            field
+            for field in REQUIRED_METADATA
+            if path_metadata[field] != contract[field]
+        ]
+
+        if mismatched_fields:
+            raise ValueError(
+                "Contract metadata does not match its S3 path for: "
+                + ", ".join(mismatched_fields)
+            )
+
         contract_id = build_contract_id(contract)
         fingerprint = calculate_contract_fingerprint(contract)
+
+      
         contract_uri = f"s3://{bucket_name}/{object_key}"
 
         log_context.update(
