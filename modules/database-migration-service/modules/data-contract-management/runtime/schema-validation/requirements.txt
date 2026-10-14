@@ -1,2 +1,3 @@
 boto3
 pyarrow
+fastavro==1.12.1
