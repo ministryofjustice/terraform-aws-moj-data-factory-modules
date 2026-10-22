@@ -7,6 +7,7 @@ SCHEMA_NAMES = frozenset(
     {
         "service-v1.schema.json",
         "platform-v1.schema.json",
+        "deployment-v1.schema.json",
     }
 )
 

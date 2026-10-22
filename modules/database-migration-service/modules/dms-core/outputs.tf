@@ -62,10 +62,6 @@ output "replication_task_log_group" {
   } : null
 }
 
-#----------------------------------------------------------------------
-# Replication Task Outputs
-#----------------------------------------------------------------------
-
 output "replication_tasks" {
   description = "DMS replication task identifiers exposed for downstream orchestration and monitoring."
 
@@ -74,6 +70,39 @@ output "replication_tasks" {
       arn            = task.replication_task_arn
       id             = task.replication_task_id
       migration_type = task.migration_type
+    }
+  }
+}
+
+output "resource_binding" {
+  description = "DMS resource references and configured extraction boundaries for deployment manifest generation."
+
+  value = {
+    replication_instance_arn = aws_dms_replication_instance.this.replication_instance_arn
+
+    source_endpoint = {
+      arn           = aws_dms_endpoint.source.endpoint_arn
+      engine        = aws_dms_endpoint.source.engine_name
+      database_name = aws_dms_endpoint.source.database_name
+    }
+
+    target_endpoint = {
+      arn           = aws_dms_s3_endpoint.target.endpoint_arn
+      bucket_name   = aws_dms_s3_endpoint.target.bucket_name
+      bucket_folder = aws_dms_s3_endpoint.target.bucket_folder
+      cdc_path      = aws_dms_s3_endpoint.target.cdc_path
+    }
+
+    replication_tasks = {
+      for key, task in aws_dms_replication_task.this : key => {
+        arn                      = task.replication_task_arn
+        id                       = task.replication_task_id
+        migration_type           = task.migration_type
+        replication_instance_arn = task.replication_instance_arn
+        source_endpoint_arn      = task.source_endpoint_arn
+        target_endpoint_arn      = task.target_endpoint_arn
+        table_mappings           = jsondecode(task.table_mappings)
+      }
     }
   }
 }

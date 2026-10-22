@@ -22,3 +22,15 @@ output "replication_tasks" {
   description = "DMS replication tasks keyed by task name, including ARN, ID and migration type."
   value       = module.dms_core.replication_tasks
 }
+
+output "deployment_binding" {
+  description = "Deployment identity and DMS resource configuration for ingestion resource lookup."
+
+  value = merge(
+    {
+      deployment_name = var.name
+      environment     = var.environment
+    },
+    module.dms_core.resource_binding
+  )
+}

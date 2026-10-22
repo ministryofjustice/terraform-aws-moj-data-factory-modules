@@ -53,6 +53,39 @@ run "postgres_compiled_inputs" {
 
     error_message = "The module must retain the compiler's ingestion modes."
   }
+
+  assert {
+    condition = alltrue([
+      for group_name, inputs in var.compiled_artifact.module_inputs : (
+        module.source_ingestion[group_name].deployment_binding.deployment_name
+        == inputs.name
+        &&
+        module.source_ingestion[group_name].deployment_binding.environment
+        == inputs.environment
+        &&
+        module.source_ingestion[group_name].deployment_binding.source_endpoint.engine
+        == inputs.source_endpoint.engine
+        &&
+        module.source_ingestion[group_name].deployment_binding.source_endpoint.database_name
+        == inputs.source_endpoint.database_name
+        &&
+        module.source_ingestion[group_name].deployment_binding.target_endpoint.bucket_name
+        == inputs.target.bucket_name
+        &&
+        module.source_ingestion[group_name].deployment_binding.target_endpoint.bucket_folder
+        == inputs.target.bucket_folder
+        &&
+        jsonencode(
+          module.source_ingestion[group_name].deployment_binding.replication_tasks[group_name].table_mappings
+        )
+        == jsonencode(
+          jsondecode(inputs.replication_tasks[group_name].table_mappings)
+        )
+      )
+    ])
+
+    error_message = "Deployment bindings must retain the compiled identity, source, landing boundary and exact table mappings."
+  }
 }
 
 run "oracle_compiled_inputs" {
@@ -91,5 +124,38 @@ run "oracle_compiled_inputs" {
     ])
 
     error_message = "The module must retain the compiler's ingestion modes."
+  }
+
+  assert {
+    condition = alltrue([
+      for group_name, inputs in var.compiled_artifact.module_inputs : (
+        module.source_ingestion[group_name].deployment_binding.deployment_name
+        == inputs.name
+        &&
+        module.source_ingestion[group_name].deployment_binding.environment
+        == inputs.environment
+        &&
+        module.source_ingestion[group_name].deployment_binding.source_endpoint.engine
+        == inputs.source_endpoint.engine
+        &&
+        module.source_ingestion[group_name].deployment_binding.source_endpoint.database_name
+        == inputs.source_endpoint.database_name
+        &&
+        module.source_ingestion[group_name].deployment_binding.target_endpoint.bucket_name
+        == inputs.target.bucket_name
+        &&
+        module.source_ingestion[group_name].deployment_binding.target_endpoint.bucket_folder
+        == inputs.target.bucket_folder
+        &&
+        jsonencode(
+          module.source_ingestion[group_name].deployment_binding.replication_tasks[group_name].table_mappings
+        )
+        == jsonencode(
+          jsondecode(inputs.replication_tasks[group_name].table_mappings)
+        )
+      )
+    ])
+
+    error_message = "Deployment bindings must retain the compiled identity, source, landing boundary and exact table mappings."
   }
 }

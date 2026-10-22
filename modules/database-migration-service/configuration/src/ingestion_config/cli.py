@@ -8,6 +8,10 @@ from ingestion_config.compiler import (
     canonical_json,
     compile_service,
 )
+from ingestion_config.deployment_cli import (
+    add_deployment_commands,
+    run_deployment_command,
+)
 from ingestion_config.loader import ConfigurationError
 from ingestion_config.platform import resolve_service
 
@@ -79,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
                 required=True,
             )
 
+    add_deployment_commands(commands)
+
     args = parser.parse_args(argv)
 
     try:
@@ -93,7 +99,7 @@ def main(argv: list[str] | None = None) -> int:
                 + result["service_configuration"]["service"]
             )
 
-        else:
+        elif args.command == "compile":
             result = compile_service(
                 args.service,
                 args.platform,
@@ -118,6 +124,22 @@ def main(argv: list[str] | None = None) -> int:
                 "Artifact revision: "
                 + result["artifact_revision"]
             )
+
+        else:
+            result = run_deployment_command(args)
+
+            write_artifact(
+                args.output,
+                canonical_json(result),
+            )
+
+            label = (
+                "MANIFEST"
+                if args.command == "build-manifest"
+                else "RESOLVED"
+            )
+
+            print(f"{label}: {args.output}")
 
         return 0
 
