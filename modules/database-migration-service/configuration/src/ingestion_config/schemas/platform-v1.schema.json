@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ingestion platform bindings v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configuration_version",
+    "environment",
+    "region",
+    "services",
+    "network_profiles",
+    "replication_profiles",
+    "destination_profiles",
+    "concurrency_profiles",
+    "component_profiles"
+  ],
+  "properties": {
+    "configuration_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "environment": {
+      "const": "development"
+    },
+    "region": {
+      "const": "eu-west-2"
+    },
+    "services": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/profile_name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/service_binding"
+      }
+    },
+    "network_profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/profile_name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/network"
+      }
+    },
+    "replication_profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/profile_name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/replication"
+      }
+    },
+    "destination_profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/profile_name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/destination"
+      }
+    },
+    "concurrency_profiles": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/profile_name"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "max_parallel_tables",
+          "max_parallel_full_loads"
+        ],
+        "properties": {
+          "max_parallel_tables": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "max_parallel_full_loads": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "component_profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processing",
+        "history",
+        "publication"
+      ],
+      "properties": {
+        "processing": {
+          "$ref": "#/$defs/profile_list"
+        },
+        "history": {
+          "$ref": "#/$defs/profile_list"
+        },
+        "publication": {
+          "$ref": "#/$defs/profile_list"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "profile_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "profile_list": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/profile_name"
+      }
+    },
+    "nonempty_string": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:[\\s\\S]*\\S)?$"
+    },
+    "service_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "database_name",
+        "secret_ref",
+        "secret_arn",
+        "network_profile",
+        "replication_profile",
+        "allowed_destination_profiles",
+        "allowed_concurrency_profiles"
+      ],
+      "properties": {
+        "engine": {
+          "enum": [
+            "postgres",
+            "oracle"
+          ]
+        },
+        "database_name": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "secret_ref": {
+          "$ref": "#/$defs/profile_name"
+        },
+        "secret_arn": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "secret_kms_key_arn": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "network_profile": {
+          "$ref": "#/$defs/profile_name"
+        },
+        "replication_profile": {
+          "$ref": "#/$defs/profile_name"
+        },
+        "allowed_destination_profiles": {
+          "$ref": "#/$defs/profile_list"
+        },
+        "allowed_concurrency_profiles": {
+          "$ref": "#/$defs/profile_list"
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vpc_id",
+        "subnet_ids",
+        "additional_security_group_ids"
+      ],
+      "properties": {
+        "vpc_id": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "subnet_ids": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonempty_string"
+          }
+        },
+        "additional_security_group_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/nonempty_string"
+          }
+        }
+      }
+    },
+    "replication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instance_class",
+        "allocated_storage",
+        "multi_az"
+      ],
+      "properties": {
+        "instance_class": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "allocated_storage": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "multi_az": {
+          "type": "boolean"
+        },
+        "kms_key_arn": {
+          "$ref": "#/$defs/nonempty_string"
+        }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_domain",
+        "bucket_name",
+        "landing_prefix",
+        "kms_key_arn"
+      ],
+      "properties": {
+        "parent_domain": {
+          "enum": [
+            "prisons",
+            "probation"
+          ]
+        },
+        "bucket_name": {
+          "$ref": "#/$defs/nonempty_string"
+        },
+        "landing_prefix": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9/-]*/$"
+        },
+        "kms_key_arn": {
+          "$ref": "#/$defs/nonempty_string"
+        }
+      }
+    }
+  }
+}

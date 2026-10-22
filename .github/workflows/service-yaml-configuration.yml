@@ -1,0 +1,138 @@
+name: Service YAML configuration
+
+on:
+  pull_request:
+    branches:
+      - integration/data-hub-modularisation
+    paths:
+      - ".github/workflows/service-yaml-configuration.yml"
+      - "modules/database-migration-service/configuration/**"
+      - "modules/database-migration-service/modules/dms-source-ingestion/**"
+      - "modules/database-migration-service/modules/dms-core/**"
+
+  push:
+    branches:
+      - integration/data-hub-modularisation
+    paths:
+      - ".github/workflows/service-yaml-configuration.yml"
+      - "modules/database-migration-service/configuration/**"
+      - "modules/database-migration-service/modules/dms-source-ingestion/**"
+      - "modules/database-migration-service/modules/dms-core/**"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: service-yaml-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  configuration:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: modules/database-migration-service/configuration
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install locked dependencies
+        run: |
+          python -m pip install \
+            --require-hashes \
+            -r requirements-dev.lock
+
+          python -m pip install --no-deps -e .
+
+          python -m pip check
+
+      - name: Run Python tests
+        run: python -m pytest -c pytest.ini tests -q -p no:cacheprovider
+
+      - name: Build wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist .
+
+      - name: Check installed wheel
+        run: |
+          python -m venv "$RUNNER_TEMP/service-yaml-wheel"
+
+          "$RUNNER_TEMP/service-yaml-wheel/bin/python" -m pip install \
+            --require-hashes \
+            -r requirements-dev.lock
+
+          "$RUNNER_TEMP/service-yaml-wheel/bin/python" -m pip install \
+            --no-deps \
+            dist/*.whl
+
+          "$RUNNER_TEMP/service-yaml-wheel/bin/python" -m pip check
+
+          for engine in postgres oracle
+          do
+            env -u PYTHONPATH \
+              "$RUNNER_TEMP/service-yaml-wheel/bin/ingestion-config" validate \
+              --service "examples/${engine}.yaml" \
+              --platform examples/platform-development.yaml
+          done
+
+      - name: Set up Terraform
+        if: matrix.python-version == '3.12'
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: "1.15.8"
+          terraform_wrapper: false
+
+      - name: Compile Terraform fixtures
+        if: matrix.python-version == '3.12'
+        run: |
+          for engine in postgres oracle
+          do
+            ingestion-config compile \
+              --service "examples/${engine}.yaml" \
+              --platform examples/platform-development.yaml \
+              --extraction-generation generation-one \
+              --output "tests/terraform/fixtures/${engine}.json"
+          done
+
+      - name: Check Terraform formatting
+        if: matrix.python-version == '3.12'
+        run: terraform fmt -check -recursive tests/terraform
+
+      - name: Initialise Terraform test harness
+        if: matrix.python-version == '3.12'
+        run: |
+          terraform -chdir=tests/terraform init \
+            -backend=false \
+            -input=false \
+            -lockfile=readonly
+
+      - name: Validate Terraform test harness
+        if: matrix.python-version == '3.12'
+        run: terraform -chdir=tests/terraform validate
+
+      - name: Test compiled Terraform inputs
+        if: matrix.python-version == '3.12'
+        run: terraform -chdir=tests/terraform test
