@@ -12,6 +12,7 @@ from ingestion_config.schema import load_schema
     [
         "service-v1.schema.json",
         "platform-v1.schema.json",
+        "deployment-v1.schema.json",
     ],
 )
 def test_bundled_schema_is_available(name):

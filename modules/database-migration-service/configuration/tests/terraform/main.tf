@@ -42,3 +42,12 @@ output "replication_tasks" {
     group_name => deployment.replication_tasks
   }
 }
+
+output "deployment_bindings" {
+  description = "Resource bindings exposed by each ingestion deployment."
+
+  value = {
+    for group_name, deployment in module.source_ingestion :
+    group_name => deployment.deployment_binding
+  }
+}

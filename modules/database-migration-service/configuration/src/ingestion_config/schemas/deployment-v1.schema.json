@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ingestion deployment manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "configuration_revision",
+    "artifact_revision",
+    "environment",
+    "account_id",
+    "region",
+    "source",
+    "database_name",
+    "extraction_generation",
+    "task_groups"
+  ],
+  "properties": {
+    "manifest_version": {
+      "const": 1
+    },
+    "configuration_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "artifact_revision": {
+      "$ref": "#/$defs/revision"
+    },
+    "environment": {
+      "$ref": "#/$defs/slug"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "$ref": "#/$defs/slug"
+    },
+    "database_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "extraction_generation": {
+      "$ref": "#/$defs/slug"
+    },
+    "task_groups": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/slug"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/task_group"
+      }
+    }
+  },
+  "$defs": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "slug": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "dms_arn": {
+      "type": "string",
+      "pattern": "^arn:aws:dms:[a-z0-9-]+:[0-9]{12}:(rep|endpoint|task):[A-Za-z0-9]+$"
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_name",
+        "table_name"
+      ],
+      "properties": {
+        "schema_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "table_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "landing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bucket_name",
+        "prefix"
+      ],
+      "properties": {
+        "bucket_name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 63
+        },
+        "prefix": {
+          "type": "string",
+          "minLength": 2,
+          "pattern": "^[^/].*/$"
+        }
+      }
+    },
+    "task_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deployment_name",
+        "migration_type",
+        "replication_instance_arn",
+        "source_endpoint_arn",
+        "target_endpoint_arn",
+        "replication_task_arn",
+        "replication_task_id",
+        "tables",
+        "landing"
+      ],
+      "properties": {
+        "deployment_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "migration_type": {
+          "enum": [
+            "full-load",
+            "full-load-and-cdc"
+          ]
+        },
+        "replication_instance_arn": {
+          "$ref": "#/$defs/dms_arn"
+        },
+        "source_endpoint_arn": {
+          "$ref": "#/$defs/dms_arn"
+        },
+        "target_endpoint_arn": {
+          "$ref": "#/$defs/dms_arn"
+        },
+        "replication_task_arn": {
+          "$ref": "#/$defs/dms_arn"
+        },
+        "replication_task_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tables": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/table"
+          }
+        },
+        "landing": {
+          "$ref": "#/$defs/landing"
+        }
+      }
+    }
+  }
+}

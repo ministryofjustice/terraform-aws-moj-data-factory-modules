@@ -367,3 +367,25 @@ python -m pip wheel \
 
 The wheel includes both JSON Schemas so validation works after
 installation.
+
+## Deployment resource lookup
+
+The tool can build a deployment manifest from a compiled service
+configuration and the resource bindings exported by Terraform.
+
+The manifest records the selected tables, DMS resources and landing
+locations. Table lookup checks the requested identity and exact
+configuration revisions, then returns the resources and all tables
+sharing the DMS task.
+
+Published lookup reads specific S3 object versions and checks their
+SHA-256 digests. It can also resolve required contract and downstream
+capabilities from a pinned deployment catalog.
+
+Checks reject mismatched bindings, broader table mappings, missing
+required capabilities and overlapping deployment boundaries.
+
+The deployment still needs to publish these documents, control which
+deployments are available and verify the actual AWS resources. The
+Ingestion Registry will store ownership and the references needed for
+recovery. These local checks do not prove live ingestion isolation.
