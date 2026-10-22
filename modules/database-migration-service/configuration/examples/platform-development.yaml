@@ -1,0 +1,79 @@
+# Example configuration only
+# AWS identifiers are placeholders and must not be used for deployment
+
+configuration_version: 1
+environment: development
+region: eu-west-2
+
+services:
+  sandbox-postgres:
+    engine: postgres
+    database_name: dms_test
+
+    secret_ref: sandbox-postgres-source
+    secret_arn: arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-postgres-AbCdEf
+
+    network_profile: sandbox-private
+    replication_profile: sandbox-small
+
+    allowed_destination_profiles:
+      - sandbox-probation
+
+    allowed_concurrency_profiles:
+      - sandbox-small
+
+  sandbox-oracle:
+    engine: oracle
+    database_name: DMSTEST
+
+    secret_ref: sandbox-oracle-source
+    secret_arn: arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-oracle-AbCdEf
+
+    network_profile: sandbox-private
+    replication_profile: sandbox-small
+
+    allowed_destination_profiles:
+      - sandbox-probation
+
+    allowed_concurrency_profiles:
+      - sandbox-small
+
+network_profiles:
+  sandbox-private:
+    vpc_id: vpc-0123456789abcdef0
+
+    subnet_ids:
+      - subnet-0123456789abcdef0
+      - subnet-0123456789abcdef1
+
+    additional_security_group_ids:
+      - sg-0123456789abcdef0
+
+replication_profiles:
+  sandbox-small:
+    instance_class: dms.t3.medium
+    allocated_storage: 100
+    multi_az: false
+    kms_key_arn: arn:aws:kms:eu-west-2:111122223333:key/11111111-1111-1111-1111-111111111111
+
+destination_profiles:
+  sandbox-probation:
+    parent_domain: probation
+    bucket_name: example-development-raw
+    landing_prefix: landing/
+    kms_key_arn: arn:aws:kms:eu-west-2:111122223333:key/22222222-2222-2222-2222-222222222222
+
+concurrency_profiles:
+  sandbox-small:
+    max_parallel_tables: 2
+    max_parallel_full_loads: 1
+
+component_profiles:
+  processing:
+    - standard
+
+  history:
+    - standard
+
+  publication:
+    - sandbox

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moj-ingestion-config"
+description = "Validate service YAML and compile reusable ingestion configuration"
+requires-python = ">=3.12"
+dynamic = ["version", "dependencies"]
+
+[project.scripts]
+ingestion-config = "ingestion_config.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ingestion_config*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+ingestion_config = ["schemas/*.json"]
+
+[tool.setuptools.dynamic]
+version = {attr = "ingestion_config.compiler.COMPILER_VERSION"}
+dependencies = {file = ["requirements.txt"]}

@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Ingestion service configuration v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configuration_version",
+    "service",
+    "parent_domain",
+    "source",
+    "task_groups",
+    "destination_profile",
+    "concurrency_profile",
+    "schedule"
+  ],
+  "properties": {
+    "configuration_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "service": {
+      "$ref": "#/$defs/profile"
+    },
+    "parent_domain": {
+      "enum": [
+        "prisons",
+        "probation"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "database_name",
+        "secret_ref"
+      ],
+      "properties": {
+        "engine": {
+          "enum": [
+            "postgres",
+            "oracle"
+          ]
+        },
+        "database_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "secret_ref": {
+          "$ref": "#/$defs/profile"
+        }
+      }
+    },
+    "task_groups": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/profile"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/task_group"
+      }
+    },
+    "destination_profile": {
+      "$ref": "#/$defs/profile"
+    },
+    "concurrency_profile": {
+      "$ref": "#/$defs/profile"
+    },
+    "schedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled"
+          ],
+          "properties": {
+            "enabled": {
+              "const": false
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "enabled",
+            "expression",
+            "timezone",
+            "operation"
+          ],
+          "properties": {
+            "enabled": {
+              "const": true
+            },
+            "expression": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "timezone": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "operation": {
+              "enum": [
+                "INITIAL_INGESTION",
+                "REINGESTION"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_$#]*$"
+    },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)*$"
+    },
+    "contract": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy",
+            "namespace"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "generate_if_missing"
+            },
+            "namespace": {
+              "$ref": "#/$defs/namespace"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "strategy",
+            "contract_version"
+          ],
+          "properties": {
+            "strategy": {
+              "const": "existing"
+            },
+            "contract_version": {
+              "type": "string",
+              "pattern": "^v[1-9][0-9]*$"
+            }
+          }
+        }
+      ]
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_name",
+        "table_name",
+        "contract",
+        "processing_profile",
+        "history_profile",
+        "publication_profile"
+      ],
+      "properties": {
+        "schema_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "table_name": {
+          "$ref": "#/$defs/identifier"
+        },
+        "contract": {
+          "$ref": "#/$defs/contract"
+        },
+        "processing_profile": {
+          "$ref": "#/$defs/profile"
+        },
+        "history_profile": {
+          "$ref": "#/$defs/profile"
+        },
+        "publication_profile": {
+          "$ref": "#/$defs/profile"
+        }
+      }
+    },
+    "task_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "tables"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "full-load",
+            "full-load-and-cdc"
+          ]
+        },
+        "tables": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/table"
+          }
+        }
+      }
+    }
+  }
+}

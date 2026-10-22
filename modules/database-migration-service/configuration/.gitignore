@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+.terraform/
+*.tfstate
+*.tfstate.*
+tests/terraform/fixtures/*.json
