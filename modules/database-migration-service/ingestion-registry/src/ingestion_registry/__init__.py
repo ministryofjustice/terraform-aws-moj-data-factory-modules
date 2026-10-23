@@ -1,0 +1,1 @@
+"""Reusable ingestion identity, ownership and progress tracking."""
