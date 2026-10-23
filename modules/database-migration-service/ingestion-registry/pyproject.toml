@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moj-ingestion-registry"
+version = "0.1.0"
+description = "Ingestion identity, ownership and progress tracking"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.35,<2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ingestion_registry*"]
+namespaces = false
