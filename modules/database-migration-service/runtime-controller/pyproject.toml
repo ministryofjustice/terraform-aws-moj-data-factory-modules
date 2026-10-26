@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moj-dms-runtime"
+version = "0.1.0"
+description = "Shared DMS runtime operations"
+requires-python = ">=3.12"
+dependencies = [
+    "boto3>=1.35,<2.0",
+    "moj-ingestion-config==0.1.0",
+    "moj-ingestion-registry==0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dms_runtime*"]
+namespaces = false
