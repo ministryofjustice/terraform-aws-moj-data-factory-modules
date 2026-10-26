@@ -1,0 +1,13 @@
+# Runtime test dependencies.
+-r requirements-dev.txt
+
+# Dependencies needed by the shared configuration package.
+-r ../configuration/requirements.txt
+
+# Shared runtime and registry AWS dependency.
+# Keep this constraint aligned with their pyproject.toml files.
+boto3>=1.35,<2.0
+
+# Build dependencies for editable installs and wheel checks.
+setuptools>=77,<85
+wheel
