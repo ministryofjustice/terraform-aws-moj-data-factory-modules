@@ -10,8 +10,14 @@ terraform {
 }
 
 variable "compiled_artifact" {
-  description = "Compiler output supplied by the compatibility tests."
+  description = "Compiler output supplied by the existing compatibility tests."
   type        = any
+}
+
+variable "compiled_artifacts" {
+  description = "Compiled service artifacts used to test the reusable composition."
+  type        = any
+  default     = {}
 }
 
 provider "aws" {
@@ -32,6 +38,14 @@ module "source_ingestion" {
   source_endpoint      = each.value.source_endpoint
   target               = each.value.target
   replication_tasks    = each.value.replication_tasks
+}
+
+module "service_ingestion" {
+  for_each = var.compiled_artifacts
+
+  source = "../../../modules/service-ingestion"
+
+  compiled_artifact = each.value
 }
 
 output "replication_tasks" {
