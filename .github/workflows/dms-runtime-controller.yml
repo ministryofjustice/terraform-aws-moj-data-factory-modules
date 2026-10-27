@@ -124,3 +124,59 @@ jobs:
         run: |
           python build_lambda.py \
             --architecture x86_64
+
+      - name: Record Lambda artifact details
+        if: >-
+          matrix.python-version == '3.12' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/integration/data-hub-modularisation'
+        run: |
+          archive="dist/dms-runtime-python312-x86_64.zip"
+
+          (
+            cd dist
+            sha256sum dms-runtime-python312-x86_64.zip > SHA256SUMS
+          )
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          archive = Path("dist/dms-runtime-python312-x86_64.zip")
+
+          with archive.open("rb") as stream:
+              digest = hashlib.file_digest(stream, "sha256").hexdigest()
+
+          metadata = {
+              "source_repository": os.environ["GITHUB_REPOSITORY"],
+              "source_commit": os.environ["GITHUB_SHA"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "archive": archive.name,
+              "sha256": digest,
+              "python_version": "3.12",
+              "architecture": "x86_64",
+          }
+
+          Path("dist/artifact-metadata.json").write_text(
+              json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Retain verified Lambda artifact
+        if: >-
+          matrix.python-version == '3.12' &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/integration/data-hub-modularisation'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dms-runtime-python312-x86_64-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            modules/database-migration-service/runtime-controller/dist/dms-runtime-python312-x86_64.zip
+            modules/database-migration-service/runtime-controller/dist/SHA256SUMS
+            modules/database-migration-service/runtime-controller/dist/artifact-metadata.json
+          if-no-files-found: error
+          retention-days: 90
