@@ -372,7 +372,12 @@ the resolved package versions, architecture and handler.
 
 Rebuild after changing any of the three shared libraries.
 
-Dependency versions and the container image are not yet fully locked.
+The build uses hash-checked locks for its build tools and external runtime
+dependencies and a pinned Python 3.12 Lambda container image.
+
+The ZIP includes runtime-build.json with the installed package versions.
+Its SHA-256 is printed after the build. Separate builds are not currently
+guaranteed to produce byte-identical archives.
 
 ## Testing and current status
 

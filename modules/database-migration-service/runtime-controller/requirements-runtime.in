@@ -1,0 +1,5 @@
+# Dependencies needed by the shared configuration package.
+-r ../configuration/requirements.txt
+
+# AWS dependency shared by the runtime and registry packages.
+boto3>=1.35,<2.0
