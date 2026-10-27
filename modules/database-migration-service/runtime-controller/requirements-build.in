@@ -1,0 +1,3 @@
+# Build tools used for the three local Python packages.
+setuptools>=77,<85
+wheel

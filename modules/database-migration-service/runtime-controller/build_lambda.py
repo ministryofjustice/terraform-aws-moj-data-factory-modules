@@ -89,12 +89,60 @@ with tempfile.TemporaryDirectory(
 
         projects.append(destination)
 
-    pip(
-        "wheel",
-        "--no-deps",
-        "--wheel-dir",
-        str(wheels),
-        *(str(project) for project in projects),
+    build_lock = (
+        sources
+        / "runtime-controller"
+        / "requirements-build.lock"
+    )
+
+    if not build_lock.is_file():
+        raise RuntimeError("Missing build dependency lock")
+
+    build_environment = workspace / "build-environment"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "venv",
+            str(build_environment),
+        ],
+        check=True,
+    )
+
+    build_python = build_environment / "bin" / "python"
+
+    subprocess.run(
+        [
+            str(build_python),
+            "-m",
+            "pip",
+            "--disable-pip-version-check",
+            "--no-input",
+            "install",
+            "--require-hashes",
+            "--only-binary=:all:",
+            "-r",
+            str(build_lock),
+        ],
+        check=True,
+    )
+
+    subprocess.run(
+        [
+            str(build_python),
+            "-m",
+            "pip",
+            "--disable-pip-version-check",
+            "--no-input",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "--wheel-dir",
+            str(wheels),
+            *(str(project) for project in projects),
+        ],
+        check=True,
     )
 
     local_wheels = sorted(wheels.glob("*.whl"))
@@ -110,14 +158,66 @@ with tempfile.TemporaryDirectory(
                 f"Local project is not platform-independent: {wheel.name}"
             )
 
-    # Resolve dependencies under the actual target Python and OS.
+    # Install locked external dependencies in the target environment.
+    runtime_lock = (
+        sources
+        / "runtime-controller"
+        / "requirements-runtime.lock"
+    )
+
+    if not runtime_lock.is_file():
+        raise RuntimeError("Missing runtime dependency lock")
+
     pip(
         "install",
         "--target",
         str(package),
+        "--require-hashes",
         "--only-binary=:all:",
         "--no-compile",
+        "-r",
+        str(runtime_lock),
+    )
+
+    # Install the three local project wheels without resolving
+    # their dependencies again.
+    pip(
+        "install",
+        "--target",
+        str(package),
+        "--no-deps",
+        "--no-compile",
         *(str(wheel) for wheel in local_wheels),
+    )
+
+    # Check the packaged distributions in a clean environment.
+    check_environment = workspace / "check-environment"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "venv",
+            str(check_environment),
+        ],
+        check=True,
+    )
+
+    check_python = check_environment / "bin" / "python"
+
+    subprocess.run(
+        [
+            str(check_python),
+            "-m",
+            "pip",
+            "check",
+        ],
+        check=True,
+        cwd=workspace,
+        env={
+            **os.environ,
+            "PYTHONPATH": str(package),
+        },
     )
 
     required_files = {
@@ -297,7 +397,10 @@ def build(architecture: str) -> Path:
             ),
             "--entrypoint",
             "/var/lang/bin/python3.12",
-            "public.ecr.aws/lambda/python:3.12",
+            (
+                "public.ecr.aws/lambda/python@sha256:"
+                "25aee9bac65f131c5d090d3e3a36ccf232d65cf3e6c1dbd0bffd43ca7ce34406"
+            ),
             "-B",
             "-c",
             CONTAINER_BUILD,
