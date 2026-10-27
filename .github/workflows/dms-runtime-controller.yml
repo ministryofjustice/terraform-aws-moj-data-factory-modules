@@ -118,3 +118,9 @@ jobs:
             --import-mode=prepend \
             -q \
             -p no:cacheprovider
+
+      - name: Build and smoke-test Lambda package
+        if: matrix.python-version == '3.12'
+        run: |
+          python build_lambda.py \
+            --architecture x86_64
