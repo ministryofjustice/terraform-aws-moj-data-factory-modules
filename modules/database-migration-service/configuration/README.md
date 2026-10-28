@@ -389,3 +389,49 @@ The deployment still needs to publish these documents, control which
 deployments are available and verify the actual AWS resources. The
 Ingestion Registry will store ownership and the references needed for
 recovery. These local checks do not prove live ingestion isolation.
+
+## Compiling several services
+
+Real service files belong in the environment repository. Each YAML filename
+must match its service name, for example sandbox-postgres.yaml.
+
+Extraction generations are supplied in a separate JSON map keyed by service
+name. They are reviewed deployment settings, not timestamps or CI run IDs.
+Changing a generation can create a new extraction boundary and DMS resources.
+
+    ingestion-config compile-directory --services services --platform platform.json --generations generations.json --output compiled.auto.tfvars.json
+
+The output contains a compiled_artifacts map for configured-ingestion.
+Every service is validated before the output is written. Existing output
+files are not overwritten.
+
+Platform bindings can include ssl_mode, certificate_arn and
+extra_connection_attributes. Verified TLS modes require a certificate.
+
+After apply, build-deployment-bundle validates the actual resource bindings
+across services, including resource reuse and overlapping landing locations.
+
+It prepares the deployment documents. It does not upload them or pin them
+to an ingestion in the Registry.
+
+## Preparing another extraction generation
+
+Deployment inventory keys include the source and extraction generation:
+
+    sandbox-postgres/sandbox-v1
+    sandbox-postgres/sandbox-v2
+
+When preparing a new generation, pass the previously reviewed inventory
+through --retained:
+
+    ingestion-config compile-directory --services services --platform platform.json --generations generations.json --retained retained.json --output next.auto.tfvars.json
+
+Previous generations are kept exactly as compiled. They are not regenerated
+from the current service YAML.
+
+Reusing a generation with identical content is harmless. Changing an existing
+generation is rejected; prepare a fresh generation instead.
+
+Retained inventory must come from the reviewed deployment records, not an
+unverified local file. A checksum detects changed content but does not by
+itself establish who authorised it.

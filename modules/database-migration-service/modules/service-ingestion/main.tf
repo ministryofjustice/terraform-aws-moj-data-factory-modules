@@ -3,6 +3,12 @@ module "source_ingestion" {
 
   source = "../dms-source-ingestion"
 
+  existing_replication_capacity = lookup(
+    var.replication_capacities,
+    each.key,
+    null
+  )
+
   name        = each.value.name
   environment = each.value.environment
   vpc_id      = each.value.vpc_id

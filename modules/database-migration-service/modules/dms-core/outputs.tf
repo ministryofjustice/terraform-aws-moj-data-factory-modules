@@ -1,16 +1,16 @@
 output "replication_instance_arn" {
   description = "ARN of the DMS replication instance."
-  value       = aws_dms_replication_instance.this.replication_instance_arn
+  value       = local.replication_capacity.replication_instance_arn
 }
 
 output "replication_instance_id" {
   description = "Identifier of the DMS replication instance."
-  value       = aws_dms_replication_instance.this.replication_instance_id
+  value       = local.replication_capacity.replication_instance_id
 }
 
 output "replication_security_group_id" {
   description = "ID of the security group created by this module for the DMS replication instance."
-  value       = aws_security_group.replication_instance.id
+  value       = local.replication_capacity.replication_security_group_id
 }
 
 output "replication_security_group_ids" {
@@ -54,12 +54,8 @@ output "s3_target_service_access_role_arn" {
 }
 
 output "replication_task_log_group" {
-  description = "CloudWatch log group managed for DMS replication tasks, or null when task logging is disabled or no tasks are configured."
-
-  value = length(aws_cloudwatch_log_group.replication_tasks) > 0 ? {
-    arn  = aws_cloudwatch_log_group.replication_tasks[0].arn
-    name = aws_cloudwatch_log_group.replication_tasks[0].name
-  } : null
+  description = "Task log group owned by the selected replication capacity."
+  value       = local.replication_capacity.task_log_group
 }
 
 output "replication_tasks" {
@@ -78,7 +74,7 @@ output "resource_binding" {
   description = "DMS resource references and configured extraction boundaries for deployment manifest generation."
 
   value = {
-    replication_instance_arn = aws_dms_replication_instance.this.replication_instance_arn
+    replication_instance_arn = local.replication_capacity.replication_instance_arn
 
     source_endpoint = {
       arn           = aws_dms_endpoint.source.endpoint_arn
@@ -105,4 +101,9 @@ output "resource_binding" {
       }
     }
   }
+}
+
+output "replication_capacity" {
+  description = "Selected replication capacity and its shared resource references."
+  value       = local.replication_capacity
 }

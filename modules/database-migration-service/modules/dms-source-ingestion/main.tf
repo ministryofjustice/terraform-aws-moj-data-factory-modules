@@ -1,6 +1,8 @@
 module "dms_core" {
   source = "../dms-core"
 
+  existing_replication_capacity = var.existing_replication_capacity
+
   name   = var.name
   vpc_id = var.vpc_id
 

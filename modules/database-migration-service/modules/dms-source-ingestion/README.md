@@ -309,6 +309,21 @@ Runtime responsibilities remain outside Terraform, including:
 
 These responsibilities belong to the orchestration layer.
 
+## Shared replication capacity
+
+The optional existing_replication_capacity input selects platform-owned
+replication capacity.
+
+When omitted, the module retains its dedicated-instance behaviour.
+When supplied, it creates endpoints and tasks on the selected capacity
+without managing that instance, its networking, alarms or task log group.
+
+The capacity must belong to the correct account, region and VPC and include
+the required source-access security groups.
+
+Do not switch an existing deployment to shared capacity without an explicit
+migration plan. Existing service migration remains outside ticket #324.
+
 ## Logging and monitoring
 
 The module passes logging and monitoring configuration to `dms-core`.

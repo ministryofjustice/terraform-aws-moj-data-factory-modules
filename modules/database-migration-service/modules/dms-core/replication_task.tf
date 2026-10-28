@@ -13,28 +13,13 @@ locals {
   }
 }
 
-resource "aws_cloudwatch_log_group" "replication_tasks" {
-  count = var.task_logging.enabled && length(var.replication_tasks) > 0 ? 1 : 0
-
-  name              = "dms-tasks-${var.replication_instance.replication_instance_id}"
-  retention_in_days = var.task_logging.retention_in_days
-  kms_key_id        = var.task_logging.kms_key_arn
-
-  tags = merge(
-    {
-      Name = "dms-tasks-${var.replication_instance.replication_instance_id}"
-    },
-    var.tags
-  )
-}
-
 resource "aws_dms_replication_task" "this" {
   for_each = var.replication_tasks
 
   replication_task_id = each.value.replication_task_id
   migration_type      = each.value.migration_type
 
-  replication_instance_arn = aws_dms_replication_instance.this.replication_instance_arn
+  replication_instance_arn = local.replication_capacity.replication_instance_arn
   source_endpoint_arn      = aws_dms_endpoint.source.endpoint_arn
   target_endpoint_arn      = aws_dms_s3_endpoint.target.endpoint_arn
 
@@ -58,6 +43,6 @@ resource "aws_dms_replication_task" "this" {
   }
 
   depends_on = [
-    aws_cloudwatch_log_group.replication_tasks
+    module.capacity
   ]
 }

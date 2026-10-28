@@ -386,3 +386,38 @@ Python 3.14.
 
 They use mocked AWS interactions. The package has also passed its Linux
 import and schema checks.
+
+## Publishing the development package
+
+After a push to integration/data-hub-modularisation, CI waits for the
+Python and Terraform checks to pass before publishing the tested ZIP.
+
+The publishing job downloads the package from the same workflow run and
+checks its checksum, source commit and build details before authenticating
+to AWS.
+
+Packages are stored under:
+
+    lambda/dms-runtime-controller/<source-commit>/<zip-sha256>/
+
+The job uploads the ZIP, build metadata and checksum file. Existing files
+are not overwritten. If a file already exists, its exact S3 version must
+match the local file and expected encryption.
+
+After uploading, the job reads each exact object version back and checks
+its contents. It then produces deployment-reference.json with the bucket,
+object key, S3 version, checksum and source details.
+
+The reference is retained as a workflow artifact. It contains AWS resource
+identifiers, so it is not printed in the workflow summary. Use it to pin
+the later Terraform deployment.
+
+Publishing does not deploy the Lambda or start ingestion.
+
+The workflow uses these repository secrets:
+
+- DMS_RUNTIME_ARTIFACT_BUCKET
+- DMS_RUNTIME_ARTIFACT_KMS_KEY_ARN
+- DMS_RUNTIME_ARTIFACT_PUBLISHER_ROLE_ARN
+
+Pull requests and manual validation runs do not publish packages.

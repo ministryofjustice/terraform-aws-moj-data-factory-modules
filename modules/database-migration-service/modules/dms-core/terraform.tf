@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.3.0, < 2.0.0"
+  required_version = ">= 1.10.0, < 2.0.0"
 
   required_providers {
     aws = {
@@ -10,3 +10,5 @@ terraform {
 }
 
 data "aws_region" "current" {}
+
+data "aws_caller_identity" "capacity" {}
