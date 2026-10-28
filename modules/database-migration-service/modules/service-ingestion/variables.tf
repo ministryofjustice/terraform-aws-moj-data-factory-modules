@@ -38,3 +38,32 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "replication_capacities" {
+  description = "Optional platform-owned capacity bindings indexed by task group. Empty preserves dedicated mode."
+
+  type = map(object({
+    vpc_id                         = string
+    replication_instance_arn       = string
+    replication_instance_id        = string
+    replication_security_group_id  = string
+    replication_security_group_ids = list(string)
+    replication_subnet_group_id    = string
+
+    task_log_group = optional(object({
+      arn  = string
+      name = string
+    }))
+  }))
+
+  default = {}
+
+  validation {
+    condition = length(setsubtract(
+      toset(keys(var.replication_capacities)),
+      toset(keys(var.compiled_artifact.module_inputs))
+    )) == 0
+
+    error_message = "Capacity bindings may only reference configured task groups."
+  }
+}

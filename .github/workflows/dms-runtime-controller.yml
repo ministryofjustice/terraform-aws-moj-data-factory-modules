@@ -10,6 +10,11 @@ on:
       - "modules/database-migration-service/configuration/**"
       - "modules/database-migration-service/ingestion-registry/**"
       - "modules/database-migration-service/modules/dms-runtime-controller/**"
+      - "modules/database-migration-service/modules/configured-ingestion/**"
+      - "modules/database-migration-service/modules/service-ingestion/**"
+      - "modules/database-migration-service/modules/dms-source-ingestion/**"
+      - "modules/database-migration-service/modules/dms-core/**"
+      - "modules/database-migration-service/modules/dms-replication-capacity/**"
 
   push:
     branches:
@@ -20,6 +25,11 @@ on:
       - "modules/database-migration-service/configuration/**"
       - "modules/database-migration-service/ingestion-registry/**"
       - "modules/database-migration-service/modules/dms-runtime-controller/**"
+      - "modules/database-migration-service/modules/configured-ingestion/**"
+      - "modules/database-migration-service/modules/service-ingestion/**"
+      - "modules/database-migration-service/modules/dms-source-ingestion/**"
+      - "modules/database-migration-service/modules/dms-core/**"
+      - "modules/database-migration-service/modules/dms-replication-capacity/**"
 
   workflow_dispatch:
 
@@ -109,6 +119,7 @@ jobs:
 
           mkdir -p "$wheel_tests"
           cp -R tests "$wheel_tests/tests"
+          cp publish_artifact.py "$wheel_tests/publish_artifact.py"
           printf '[pytest]\n' > "$wheel_tests/pytest.ini"
 
           cd "$wheel_tests"
@@ -184,14 +195,23 @@ jobs:
           retention-days: 90
 
   terraform:
-    name: Terraform runtime module
+    name: Terraform ${{ matrix.module }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - dms-runtime-controller
+          - configured-ingestion
+          - dms-source-ingestion
+          - dms-replication-capacity
 
     defaults:
       run:
         shell: bash
-        working-directory: modules/database-migration-service/modules/dms-runtime-controller
+        working-directory: modules/database-migration-service/modules/${{ matrix.module }}
 
     steps:
       - name: Harden runner
@@ -221,3 +241,104 @@ jobs:
 
       - name: Test module
         run: terraform test
+
+  publish:
+    name: Publish development runtime artifact
+    needs:
+      - runtime
+      - terraform
+
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/integration/data-hub-modularisation'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      id-token: write
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: modules/database-migration-service/runtime-controller
+
+    env:
+      ARTIFACT_BUCKET_NAME: ${{ secrets.DMS_RUNTIME_ARTIFACT_BUCKET }}
+      ARTIFACT_KMS_KEY_ARN: ${{ secrets.DMS_RUNTIME_ARTIFACT_KMS_KEY_ARN }}
+      ARTIFACT_PUBLISHER_ROLE_ARN: ${{ secrets.DMS_RUNTIME_ARTIFACT_PUBLISHER_ROLE_ARN }}
+
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+        with:
+          egress-policy: audit
+
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
+        with:
+          python-version: "3.12"
+
+      - name: Install locked publishing dependencies
+        run: |
+          python -m pip install \
+            --require-hashes \
+            --only-binary=:all: \
+            -r requirements-runtime.lock
+
+      - name: Download tested Lambda artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dms-runtime-python312-x86_64-${{ github.sha }}-${{ github.run_attempt }}
+          path: modules/database-migration-service/runtime-controller/publish-input
+
+      - name: Verify artifact before AWS authentication
+        run: |
+          python publish_artifact.py \
+            --directory publish-input \
+            --verify-only
+
+      - name: Check publishing configuration
+        run: |
+          : "${ARTIFACT_BUCKET_NAME:?Set the DMS_RUNTIME_ARTIFACT_BUCKET repository secret}"
+          : "${ARTIFACT_KMS_KEY_ARN:?Set the DMS_RUNTIME_ARTIFACT_KMS_KEY_ARN repository secret}"
+          : "${ARTIFACT_PUBLISHER_ROLE_ARN:?Set the DMS_RUNTIME_ARTIFACT_PUBLISHER_ROLE_ARN repository secret}"
+
+      - name: Authenticate to development AWS account
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.ARTIFACT_PUBLISHER_ROLE_ARN }}
+          aws-region: eu-west-2
+          role-session-name: dms-runtime-publish-${{ github.run_id }}
+          role-duration-seconds: 900
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      - name: Publish and verify exact S3 object versions
+        run: |
+          python publish_artifact.py \
+            --directory publish-input \
+            --output publication/deployment-reference.json
+
+      - name: Retain deployment reference
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dms-runtime-deployment-reference-${{ github.sha }}-${{ github.run_attempt }}
+          path: modules/database-migration-service/runtime-controller/publication/deployment-reference.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Add publication result to run summary
+        run: |
+          {
+            echo '### Development runtime artifact published'
+            echo
+            echo 'The package and supporting files were uploaded and verified.'
+            echo 'Download the deployment-reference artifact for the exact deployment inputs.'
+          } >> "$GITHUB_STEP_SUMMARY"

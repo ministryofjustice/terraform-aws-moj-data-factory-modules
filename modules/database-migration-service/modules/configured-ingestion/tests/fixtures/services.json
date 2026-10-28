@@ -1,0 +1,287 @@
+{
+  "sandbox-postgres/sandbox-v1": {
+    "artifact_version": 1,
+    "compiler_version": "0.1.0",
+    "naming_version": 1,
+    "configuration_revision": "2a9273e5d91eb3ea849e4818010a5480d9243e577938d0077eeadaaf8507fb8e",
+    "extraction_generation": "sandbox-v1",
+    "runtime_configuration": {
+      "configuration_version": 1,
+      "configuration_revision": "2a9273e5d91eb3ea849e4818010a5480d9243e577938d0077eeadaaf8507fb8e",
+      "environment": "development",
+      "region": "eu-west-2",
+      "source": "sandbox-postgres",
+      "parent_domain": "probation",
+      "source_endpoint": {
+        "engine": "postgres",
+        "database_name": "dms_test",
+        "secret_arn": "arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-postgres-AbCdEf"
+      },
+      "concurrency": {
+        "max_parallel_tables": 2,
+        "max_parallel_full_loads": 1
+      },
+      "schedule": {
+        "enabled": false
+      },
+      "extraction_generation": "sandbox-v1",
+      "task_groups": {
+        "integration": {
+          "mode": "full-load-and-cdc",
+          "tables": [
+            {
+              "schema_name": "public",
+              "table_name": "dms_integration_test",
+              "contract": {
+                "strategy": "generate_if_missing",
+                "namespace": "uk.gov.justice.contracts"
+              },
+              "processing_profile": "standard",
+              "history_profile": "standard",
+              "publication_profile": "sandbox"
+            }
+          ],
+          "landing": {
+            "bucket_name": "example-development-raw",
+            "prefix": "landing/development/sandbox-postgres/dms_test/integration/sandbox-v1/"
+          },
+          "deployment_name": "df-sandbox-po-integr-0cd21164176dc95d",
+          "replication_task_id": "df-sandbox-po-integr-0cd21164176dc95d-task"
+        }
+      }
+    },
+    "module_inputs": {
+      "integration": {
+        "name": "df-sandbox-po-integr-0cd21164176dc95d",
+        "environment": "development",
+        "vpc_id": "vpc-0123456789abcdef0",
+        "network": {
+          "subnet_ids": [
+            "subnet-0123456789abcdef0",
+            "subnet-0123456789abcdef1"
+          ],
+          "additional_security_group_ids": [
+            "sg-0123456789abcdef0"
+          ]
+        },
+        "replication_instance": {
+          "instance_class": "dms.t3.medium",
+          "allocated_storage": 100,
+          "multi_az": false,
+          "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/11111111-1111-1111-1111-111111111111"
+        },
+        "source_endpoint": {
+          "engine": "postgres",
+          "database_name": "dms_test",
+          "secret_arn": "arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-postgres-AbCdEf"
+        },
+        "target": {
+          "bucket_name": "example-development-raw",
+          "bucket_folder": "landing/development/sandbox-postgres/dms_test/integration/sandbox-v1",
+          "encryption": {
+            "mode": "SSE_KMS",
+            "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/22222222-2222-2222-2222-222222222222"
+          }
+        },
+        "replication_tasks": {
+          "integration": {
+            "replication_task_id": "df-sandbox-po-integr-0cd21164176dc95d-task",
+            "migration_type": "full-load-and-cdc",
+            "table_mappings": "{\"rules\":[{\"object-locator\":{\"schema-name\":\"public\",\"table-name\":\"dms_integration_test\",\"table-type\":\"table\"},\"rule-action\":\"explicit\",\"rule-id\":\"954553362\",\"rule-name\":\"table38e55411e62dff6b\",\"rule-type\":\"selection\"}]}"
+          }
+        }
+      }
+    },
+    "artifact_revision": "c2124ea4f1046268beb602a4eb317766c836be7f8711f45ba309cfdde1879d07"
+  },
+  "sandbox-postgres/sandbox-v2": {
+    "artifact_version": 1,
+    "compiler_version": "0.1.0",
+    "naming_version": 1,
+    "configuration_revision": "2a9273e5d91eb3ea849e4818010a5480d9243e577938d0077eeadaaf8507fb8e",
+    "extraction_generation": "sandbox-v2",
+    "runtime_configuration": {
+      "configuration_version": 1,
+      "configuration_revision": "2a9273e5d91eb3ea849e4818010a5480d9243e577938d0077eeadaaf8507fb8e",
+      "environment": "development",
+      "region": "eu-west-2",
+      "source": "sandbox-postgres",
+      "parent_domain": "probation",
+      "source_endpoint": {
+        "engine": "postgres",
+        "database_name": "dms_test",
+        "secret_arn": "arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-postgres-AbCdEf"
+      },
+      "concurrency": {
+        "max_parallel_tables": 2,
+        "max_parallel_full_loads": 1
+      },
+      "schedule": {
+        "enabled": false
+      },
+      "extraction_generation": "sandbox-v2",
+      "task_groups": {
+        "integration": {
+          "mode": "full-load-and-cdc",
+          "tables": [
+            {
+              "schema_name": "public",
+              "table_name": "dms_integration_test",
+              "contract": {
+                "strategy": "generate_if_missing",
+                "namespace": "uk.gov.justice.contracts"
+              },
+              "processing_profile": "standard",
+              "history_profile": "standard",
+              "publication_profile": "sandbox"
+            }
+          ],
+          "landing": {
+            "bucket_name": "example-development-raw",
+            "prefix": "landing/development/sandbox-postgres/dms_test/integration/sandbox-v2/"
+          },
+          "deployment_name": "df-sandbox-po-integr-3e3da08a68e2bd27",
+          "replication_task_id": "df-sandbox-po-integr-3e3da08a68e2bd27-task"
+        }
+      }
+    },
+    "module_inputs": {
+      "integration": {
+        "name": "df-sandbox-po-integr-3e3da08a68e2bd27",
+        "environment": "development",
+        "vpc_id": "vpc-0123456789abcdef0",
+        "network": {
+          "subnet_ids": [
+            "subnet-0123456789abcdef0",
+            "subnet-0123456789abcdef1"
+          ],
+          "additional_security_group_ids": [
+            "sg-0123456789abcdef0"
+          ]
+        },
+        "replication_instance": {
+          "instance_class": "dms.t3.medium",
+          "allocated_storage": 100,
+          "multi_az": false,
+          "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/11111111-1111-1111-1111-111111111111"
+        },
+        "source_endpoint": {
+          "engine": "postgres",
+          "database_name": "dms_test",
+          "secret_arn": "arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-postgres-AbCdEf"
+        },
+        "target": {
+          "bucket_name": "example-development-raw",
+          "bucket_folder": "landing/development/sandbox-postgres/dms_test/integration/sandbox-v2",
+          "encryption": {
+            "mode": "SSE_KMS",
+            "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/22222222-2222-2222-2222-222222222222"
+          }
+        },
+        "replication_tasks": {
+          "integration": {
+            "replication_task_id": "df-sandbox-po-integr-3e3da08a68e2bd27-task",
+            "migration_type": "full-load-and-cdc",
+            "table_mappings": "{\"rules\":[{\"object-locator\":{\"schema-name\":\"public\",\"table-name\":\"dms_integration_test\",\"table-type\":\"table\"},\"rule-action\":\"explicit\",\"rule-id\":\"954553362\",\"rule-name\":\"table38e55411e62dff6b\",\"rule-type\":\"selection\"}]}"
+          }
+        }
+      }
+    },
+    "artifact_revision": "1fb6369243fca844cd99abf0f76bb38fe26e943985db2d1b8e17b6263e74f61f"
+  },
+  "sandbox-oracle/sandbox-v1": {
+    "artifact_version": 1,
+    "compiler_version": "0.1.0",
+    "naming_version": 1,
+    "configuration_revision": "ecd2b46543a36eae6db855f19a60a7594840233d1c9ea5c2222b5e018c76bec6",
+    "extraction_generation": "sandbox-v1",
+    "runtime_configuration": {
+      "configuration_version": 1,
+      "configuration_revision": "ecd2b46543a36eae6db855f19a60a7594840233d1c9ea5c2222b5e018c76bec6",
+      "environment": "development",
+      "region": "eu-west-2",
+      "source": "sandbox-oracle",
+      "parent_domain": "probation",
+      "source_endpoint": {
+        "engine": "oracle",
+        "database_name": "DMSTEST",
+        "secret_arn": "arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-oracle-AbCdEf"
+      },
+      "concurrency": {
+        "max_parallel_tables": 2,
+        "max_parallel_full_loads": 1
+      },
+      "schedule": {
+        "enabled": false
+      },
+      "extraction_generation": "sandbox-v1",
+      "task_groups": {
+        "integration": {
+          "mode": "full-load-and-cdc",
+          "tables": [
+            {
+              "schema_name": "DMS_USER",
+              "table_name": "DMS_INTEGRATION_TEST",
+              "contract": {
+                "strategy": "generate_if_missing",
+                "namespace": "uk.gov.justice.contracts"
+              },
+              "processing_profile": "standard",
+              "history_profile": "standard",
+              "publication_profile": "sandbox"
+            }
+          ],
+          "landing": {
+            "bucket_name": "example-development-raw",
+            "prefix": "landing/development/sandbox-oracle/DMSTEST/integration/sandbox-v1/"
+          },
+          "deployment_name": "df-sandbox-or-integr-059db17b92a21d8f",
+          "replication_task_id": "df-sandbox-or-integr-059db17b92a21d8f-task"
+        }
+      }
+    },
+    "module_inputs": {
+      "integration": {
+        "name": "df-sandbox-or-integr-059db17b92a21d8f",
+        "environment": "development",
+        "vpc_id": "vpc-0123456789abcdef0",
+        "network": {
+          "subnet_ids": [
+            "subnet-0123456789abcdef0",
+            "subnet-0123456789abcdef1"
+          ],
+          "additional_security_group_ids": [
+            "sg-0123456789abcdef0"
+          ]
+        },
+        "replication_instance": {
+          "instance_class": "dms.t3.medium",
+          "allocated_storage": 100,
+          "multi_az": false,
+          "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/11111111-1111-1111-1111-111111111111"
+        },
+        "source_endpoint": {
+          "engine": "oracle",
+          "database_name": "DMSTEST",
+          "secret_arn": "arn:aws:secretsmanager:eu-west-2:111122223333:secret:example-oracle-AbCdEf"
+        },
+        "target": {
+          "bucket_name": "example-development-raw",
+          "bucket_folder": "landing/development/sandbox-oracle/DMSTEST/integration/sandbox-v1",
+          "encryption": {
+            "mode": "SSE_KMS",
+            "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/22222222-2222-2222-2222-222222222222"
+          }
+        },
+        "replication_tasks": {
+          "integration": {
+            "replication_task_id": "df-sandbox-or-integr-059db17b92a21d8f-task",
+            "migration_type": "full-load-and-cdc",
+            "table_mappings": "{\"rules\":[{\"object-locator\":{\"schema-name\":\"DMS_USER\",\"table-name\":\"DMS_INTEGRATION_TEST\",\"table-type\":\"table\"},\"rule-action\":\"explicit\",\"rule-id\":\"303183731\",\"rule-name\":\"table92123771b46353bb\",\"rule-type\":\"selection\"}]}"
+          }
+        }
+      }
+    },
+    "artifact_revision": "c70962c8da3d96eaafefc0c32b5c7cbbde5a9488df9b6ddabea20b07d061775b"
+  }
+}

@@ -14,6 +14,8 @@ from ingestion_config.deployment_cli import (
 )
 from ingestion_config.loader import ConfigurationError
 from ingestion_config.platform import resolve_service
+from ingestion_config.inventory import compile_inventory
+from ingestion_config.json_documents import load_json_object
 
 
 def write_artifact(output: Path, content: str) -> None:
@@ -83,12 +85,39 @@ def main(argv: list[str] | None = None) -> int:
                 required=True,
             )
 
+    inventory = commands.add_parser("compile-directory")
+    inventory.add_argument("--services", type=Path, required=True)
+    inventory.add_argument("--platform", type=Path, required=True)
+    inventory.add_argument("--generations", type=Path, required=True)
+    inventory.add_argument("--output", type=Path, required=True)
+    inventory.add_argument("--retained", type=Path)
     add_deployment_commands(commands)
 
     args = parser.parse_args(argv)
 
     try:
-        if args.command == "validate":
+        if args.command == "compile-directory":
+            result = compile_inventory(
+                args.services,
+                args.platform,
+                load_json_object(args.generations),
+                retained=(
+                    load_json_object(args.retained)
+                    if args.retained
+                    else None
+                ),
+            )
+
+            write_artifact(
+                args.output,
+                canonical_json(result),
+            )
+
+            print(
+                f"COMPILED: {len(result['compiled_artifacts'])} deployments"
+            )
+
+        elif args.command == "validate":
             result = resolve_service(
                 args.service,
                 args.platform,

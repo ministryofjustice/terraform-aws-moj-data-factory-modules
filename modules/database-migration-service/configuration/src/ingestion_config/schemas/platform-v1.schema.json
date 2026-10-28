@@ -174,8 +174,45 @@
         },
         "allowed_concurrency_profiles": {
           "$ref": "#/$defs/profile_list"
+        },
+        "ssl_mode": {
+          "enum": [
+            "none",
+            "require",
+            "verify-ca",
+            "verify-full"
+          ]
+        },
+        "certificate_arn": {
+          "type": "string",
+          "pattern": "^arn:aws:dms:eu-west-2:[0-9]{12}:cert:[A-Za-z0-9-]+$"
+        },
+        "extra_connection_attributes": {
+          "$ref": "#/$defs/nonempty_string"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "ssl_mode"
+            ],
+            "properties": {
+              "ssl_mode": {
+                "enum": [
+                  "verify-ca",
+                  "verify-full"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "certificate_arn"
+            ]
+          }
+        }
+      ]
     },
     "network": {
       "type": "object",

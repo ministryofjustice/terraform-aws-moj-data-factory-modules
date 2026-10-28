@@ -9,9 +9,18 @@ from ingestion_config.manifest_builder import (
     build_deployment_manifest,
 )
 from ingestion_config.resolver import resolve_table_binding
+from ingestion_config.deployment_bundle import build_deployment_bundle
 
 
 def add_deployment_commands(commands: Any) -> None:
+    bundle = commands.add_parser(
+        "build-deployment-bundle",
+        help="Validate service deployment outputs before publication",
+    )
+    bundle.add_argument("--deployments", type=Path, required=True)
+    bundle.add_argument("--account-id", required=True)
+    bundle.add_argument("--output", type=Path, required=True)
+
     build = commands.add_parser(
         "build-manifest",
         help="Build a manifest from compiler and Terraform outputs",
@@ -81,6 +90,11 @@ def add_deployment_commands(commands: Any) -> None:
 def run_deployment_command(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
+    if args.command == "build-deployment-bundle":
+        return build_deployment_bundle(
+            load_json_object(args.deployments),
+            account_id=args.account_id,
+        )
     artifact = load_json_object(args.artifact)
 
     if args.command == "build-manifest":

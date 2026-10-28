@@ -34,3 +34,8 @@ output "deployment_binding" {
     module.dms_core.resource_binding
   )
 }
+
+output "replication_capacity" {
+  description = "Selected shared or dedicated replication capacity."
+  value       = module.dms_core.replication_capacity
+}

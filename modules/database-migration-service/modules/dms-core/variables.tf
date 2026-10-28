@@ -647,3 +647,43 @@ variable "replication_tasks" {
     error_message = "Configure DMS task logging through task_logging; replication_task_settings must not contain a top-level Logging property."
   }
 }
+
+variable "existing_replication_capacity" {
+  description = "Platform-owned capacity binding. Null preserves dedicated instance creation. Do not switch an existing deployment to shared capacity as an implicit migration."
+
+  type = object({
+    vpc_id                         = string
+    replication_instance_arn       = string
+    replication_instance_id        = string
+    replication_security_group_id  = string
+    replication_security_group_ids = list(string)
+    replication_subnet_group_id    = string
+
+    task_log_group = optional(object({
+      arn  = string
+      name = string
+    }))
+  })
+
+  default = null
+
+  validation {
+    condition = var.existing_replication_capacity == null ? true : (
+      can(regex(
+        "^arn:aws:dms:${data.aws_region.current.region}:${data.aws_caller_identity.capacity.account_id}:rep:[A-Za-z0-9]+$",
+        var.existing_replication_capacity.replication_instance_arn
+      )) &&
+      var.existing_replication_capacity.vpc_id == var.vpc_id &&
+      length(setsubtract(
+        toset(var.security_group.additional_vpc_security_group_ids),
+        toset(var.existing_replication_capacity.replication_security_group_ids)
+      )) == 0 &&
+      (
+        !var.task_logging.enabled ||
+        var.existing_replication_capacity.task_log_group != null
+      )
+    )
+
+    error_message = "Shared capacity must belong to the provider account and region, use the configured VPC, include the required source security groups and own a task log group when logging is enabled."
+  }
+}

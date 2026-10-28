@@ -256,6 +256,14 @@ def resolve_service(
             "secret_kms_key_arn"
         ]
 
+    for field in (
+        "ssl_mode",
+        "certificate_arn",
+        "extra_connection_attributes",
+    ):
+        if field in binding:
+            source_endpoint[field] = binding[field]
+
     return {
         "service_configuration": copy.deepcopy(service),
         "bindings": {
