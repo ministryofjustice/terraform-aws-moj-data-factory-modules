@@ -8,6 +8,9 @@ description = "Validate service YAML and compile reusable ingestion configuratio
 requires-python = ">=3.12"
 dynamic = ["version", "dependencies"]
 
+[project.optional-dependencies]
+aws = ["boto3>=1.35,<2"]
+
 [project.scripts]
 ingestion-config = "ingestion_config.cli:main"
 
