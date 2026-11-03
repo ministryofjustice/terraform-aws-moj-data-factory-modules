@@ -162,11 +162,15 @@ def main(argv: list[str] | None = None) -> int:
                 canonical_json(result),
             )
 
-            label = (
-                "MANIFEST"
-                if args.command == "build-manifest"
-                else "RESOLVED"
-            )
+            label = {
+                "verify-runtime-package": "VERIFIED",
+                "prepare-deployment": "PREPARED",
+                "publish-deployment-documents": "PUBLISHED",
+                "finalize-deployment": "FINALIZED",
+                "build-deployment-bundle": "BUNDLE",
+                "build-manifest": "MANIFEST",
+                "resolve-table": "RESOLVED",
+            }[args.command]
 
             print(f"{label}: {args.output}")
 

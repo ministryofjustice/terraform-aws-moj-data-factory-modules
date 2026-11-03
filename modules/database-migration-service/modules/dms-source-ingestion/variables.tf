@@ -394,6 +394,7 @@ variable "target" {
     }), {})
 
     cdc = optional(object({
+      use_table_paths    = optional(bool, false)
       path               = optional(string, "cdc")
       max_batch_interval = optional(number, 10)
       min_file_size      = optional(number, 32000)

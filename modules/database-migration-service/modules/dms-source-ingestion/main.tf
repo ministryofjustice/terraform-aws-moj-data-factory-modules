@@ -77,7 +77,7 @@ module "dms_core" {
 
     cdc_max_batch_interval = var.target.cdc.max_batch_interval
     cdc_min_file_size      = var.target.cdc.min_file_size
-    cdc_path               = var.target.cdc.path
+    cdc_path               = var.target.cdc.use_table_paths ? null : var.target.cdc.path
     max_file_size          = var.target.cdc.max_file_size
 
     encryption_mode                    = var.target.encryption.mode

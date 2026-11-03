@@ -16,8 +16,13 @@ module "source_ingestion" {
   network              = each.value.network
   replication_instance = each.value.replication_instance
   source_endpoint      = each.value.source_endpoint
-  target               = each.value.target
   replication_tasks    = each.value.replication_tasks
+
+  target = merge(each.value.target, {
+    cdc = merge(try(each.value.target.cdc, {}), {
+      use_table_paths = true
+    })
+  })
 
   tags = var.tags
 }
