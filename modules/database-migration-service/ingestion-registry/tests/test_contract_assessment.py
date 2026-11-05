@@ -54,6 +54,7 @@ def assessment_setup():
     }
 
     lifecycle = Mock()
+    lifecycle.read.return_value = None
     lifecycle.submit_assessment.return_value = {
         "status": "PENDING_REVIEW"
     }

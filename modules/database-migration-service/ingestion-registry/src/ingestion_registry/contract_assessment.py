@@ -139,16 +139,62 @@ class ContractAssessmentAdmission:
             reference=candidate_reference,
         )
 
-        current = self.current_lookup.resolve(table=table)
-        baseline = (
-            None
-            if current is None
-            else S3ObjectReference(
-                **current["selection"]["registered_contract"][
-                    "object_reference"
-                ]
-            )
+        existing = self.lifecycle.read(
+            table=table,
+            request_id=request_id,
         )
+
+        if existing is None:
+            current = self.current_lookup.resolve(table=table)
+            baseline = (
+                None
+                if current is None
+                else S3ObjectReference(
+                    **current["selection"]["registered_contract"][
+                        "object_reference"
+                    ]
+                )
+            )
+        else:
+            recorded_assessment = existing.get("assessment")
+
+            if (
+                not isinstance(recorded_assessment, dict)
+                or "baseline_reference" not in recorded_assessment
+            ):
+                raise ContractAssessmentBlocked(
+                    "Existing assessment has no recorded baseline"
+                )
+
+            recorded_baseline = recorded_assessment[
+                "baseline_reference"
+            ]
+
+            if recorded_baseline is None:
+                baseline = None
+            else:
+                if (
+                    not isinstance(recorded_baseline, dict)
+                    or set(recorded_baseline)
+                    != {
+                        "bucket_name",
+                        "object_key",
+                        "version_id",
+                        "sha256",
+                    }
+                ):
+                    raise ContractAssessmentBlocked(
+                        "Existing assessment baseline is invalid"
+                    )
+
+                try:
+                    baseline = S3ObjectReference(
+                        **recorded_baseline
+                    )
+                except ValueError as error:
+                    raise ContractAssessmentBlocked(
+                        "Existing assessment baseline is invalid"
+                    ) from error
 
         response = self.s3.get_object(
             Bucket=evidence_reference.bucket_name,
