@@ -19,11 +19,6 @@ def store_candidate(
     bucket_owner_account_id: str,
     kms_key_arn: str,
 ) -> dict:
-    """Store already validated, normalised contract bytes.
-
-    identity must be derived from the generated contract.
-    Storage configuration must come from trusted deployment settings.
-    """
     required = {
         "source",
         "database_name",
