@@ -8,7 +8,15 @@ import hashlib
 import io
 import json
 import copy
+import uuid
+from dataclasses import asdict
 
+from ingestion_registry.contract_registration import (
+    ContractRegistrationBlocked,
+)
+from ingestion_registry.contract_registration_completion import (
+    ContractRegistrationCompletion,
+)
 from ingestion_registry.contract_approval import (
     ContractApprovalBlocked,
     ContractApprovalGate,
@@ -676,3 +684,231 @@ def test_concurrent_approval_change_blocks_registration_authorisation(
         "REGISTRATION_AUTHORIZATION",
     ) is None
     assert body.closed
+
+def registration_completion_setup(setup):
+    gate, s3, body, _ = approved_setup(setup)
+    raw = body.getvalue()
+
+    # Each gate verification gets a fresh response body.
+    s3.get_object.side_effect = lambda **kwargs: {
+        "Body": io.BytesIO(raw),
+        "VersionId": "approval-one",
+    }
+
+    current = gate.authorise_registration(
+        table=setup[2],
+        request_id="request-one",
+    )
+    table = setup[2]
+
+    contract_id = str(
+        uuid.uuid5(
+            uuid.NAMESPACE_DNS,
+            ":".join(
+                (
+                    table.source,
+                    table.database_name,
+                    table.schema_name,
+                    table.table_name,
+                )
+            ),
+        )
+    )
+    object_key = "/".join(
+        (
+            table.source,
+            table.database_name,
+            table.schema_name,
+            table.table_name,
+            "v1",
+            "contract.avsc",
+        )
+    )
+
+    result = {
+        "status": "REGISTRATION_CONFIRMED",
+        "request_key": current["pk"],
+        "request_fingerprint": current["request_fingerprint"],
+        "approval_revision": int(current["approval_revision"]),
+        "approval_reference": current["approval_reference"],
+        "candidate_reference": current["assessment"][
+            "candidate_reference"
+        ],
+        "registered_contract": {
+            "contract_id": contract_id,
+            "contract_version": "v1",
+            "contract_fingerprint": "d" * 64,
+            "object_reference": asdict(
+                S3ObjectReference(
+                    bucket_name="example-contracts",
+                    object_key=object_key,
+                    version_id="registered-one",
+                    sha256="a" * 64,
+                )
+            ),
+        },
+    }
+
+    registrar = Mock()
+    registrar.register.return_value = result
+    completion = ContractRegistrationCompletion(
+        registrar=registrar,
+        approval_gate=gate,
+    )
+    body.close()
+    return completion, registrar, gate
+
+
+def complete_registration(setup, completion):
+    return completion.complete(
+        table=setup[2],
+        request_id="request-one",
+        contract_version="v1",
+    )
+
+
+def test_registration_completion_is_stored_without_activation(
+    lifecycle_setup,
+):
+    completion, registrar, _ = registration_completion_setup(
+        lifecycle_setup
+    )
+
+    record = complete_registration(lifecycle_setup, completion)
+
+    assert record["record_type"] == "CONTRACT_REGISTRATION"
+    assert record["result"]["registered_contract"][
+        "object_reference"
+    ]["version_id"] == "registered-one"
+    registrar.register.assert_called_once_with(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+        contract_version="v1",
+    )
+
+    assert lifecycle_setup[0]._read(
+        record["pk"], "REGISTRATION"
+    ) == record
+
+    current = lifecycle_setup[1].read(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+    assert current["status"] == "APPROVED"
+    assert current["revision"] == 2
+
+
+def test_identical_registration_completion_is_idempotent(
+    lifecycle_setup,
+):
+    completion, _, _ = registration_completion_setup(lifecycle_setup)
+
+    first = complete_registration(lifecycle_setup, completion)
+    second = complete_registration(lifecycle_setup, completion)
+
+    assert second == first
+
+
+def test_different_registration_completion_is_rejected(
+    lifecycle_setup,
+):
+    completion, registrar, _ = registration_completion_setup(
+        lifecycle_setup
+    )
+    complete_registration(lifecycle_setup, completion)
+
+    changed = copy.deepcopy(registrar.register.return_value)
+    changed["registered_contract"]["contract_fingerprint"] = "e" * 64
+    registrar.register.return_value = changed
+
+    with pytest.raises(
+        ContractRegistrationBlocked,
+        match="different registration completion",
+    ):
+        complete_registration(lifecycle_setup, completion)
+
+
+def test_unconfirmed_registration_creates_no_completion(
+    lifecycle_setup,
+):
+    completion, registrar, _ = registration_completion_setup(
+        lifecycle_setup
+    )
+    registrar.register.return_value["status"] = "ACCEPTED"
+
+    with pytest.raises(
+        ContractRegistrationBlocked,
+        match="current approval",
+    ):
+        complete_registration(lifecycle_setup, completion)
+
+    assert lifecycle_setup[0]._read(
+        lifecycle_setup[1].read(
+            table=lifecycle_setup[2],
+            request_id="request-one",
+        )["pk"],
+        "REGISTRATION",
+    ) is None
+
+
+def test_registration_failure_creates_no_completion(
+    lifecycle_setup,
+):
+    completion, registrar, _ = registration_completion_setup(
+        lifecycle_setup
+    )
+    registrar.register.side_effect = RuntimeError("Registration failed")
+
+    with pytest.raises(RuntimeError, match="Registration failed"):
+        complete_registration(lifecycle_setup, completion)
+
+    request = lifecycle_setup[1].read(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+    assert lifecycle_setup[0]._read(
+        request["pk"], "REGISTRATION"
+    ) is None
+
+
+def test_concurrent_change_blocks_registration_completion(
+    lifecycle_setup, monkeypatch
+):
+    completion, _, gate = registration_completion_setup(
+        lifecycle_setup
+    )
+    registry = lifecycle_setup[0]
+    original_authorise = gate.authorise_registration
+
+    def authorise_then_change(**kwargs):
+        result = original_authorise(**kwargs)
+        registry.client.update_item(
+            TableName=registry.table_name,
+            Key=registry._encode(
+                {"pk": result["pk"], "sk": "META"}
+            ),
+            UpdateExpression="SET #revision = :next",
+            ExpressionAttributeNames={"#revision": "revision"},
+            ExpressionAttributeValues=registry._encode(
+                {":next": int(result["approval_revision"]) + 1}
+            ),
+        )
+        return result
+
+    monkeypatch.setattr(
+        gate,
+        "authorise_registration",
+        authorise_then_change,
+    )
+
+    with pytest.raises(
+        ContractRegistrationBlocked,
+        match="Approval changed",
+    ):
+        complete_registration(lifecycle_setup, completion)
+
+    request = lifecycle_setup[1].read(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+    assert registry._read(request["pk"], "REGISTRATION") is None
