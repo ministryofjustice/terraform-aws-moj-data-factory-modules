@@ -4,7 +4,15 @@ import boto3
 import pytest
 from moto import mock_aws
 from unittest.mock import Mock
+import hashlib
+import io
+import json
+import copy
 
+from ingestion_registry.contract_approval import (
+    ContractApprovalBlocked,
+    ContractApprovalGate,
+)
 from ingestion_registry.contract_lifecycle import ContractReviewConflict
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.contract_lifecycle import (
@@ -372,3 +380,171 @@ def test_blocked_assessment_cannot_be_approved(lifecycle_setup):
         lifecycle.record_review(
             **review_arguments(lifecycle_setup, request)
         )
+
+def approved_setup(setup, mutate_document=None):
+    lifecycle = setup[1]
+    request = submit(setup)
+    arguments = review_arguments(setup, request)
+
+    document = {
+        "approval_version": 1,
+        "table_identity": request["table_identity"],
+        "request_id": request["request_id"],
+        "request_fingerprint": request["request_fingerprint"],
+        "review_id": arguments["review_id"],
+        "reviewer": arguments["reviewer"],
+        "outcome": "APPROVED",
+        "assessment": request["assessment"],
+        "policy": request["policy"],
+    }
+
+    document = copy.deepcopy(document)
+    if mutate_document is not None:
+        mutate_document(document)
+
+    raw = json.dumps(document).encode("utf-8")
+    arguments["evidence_reference"] = S3ObjectReference(
+        bucket_name="example-contract-evidence",
+        object_key="approvals/request-one/review-one.json",
+        version_id="approval-one",
+        sha256=hashlib.sha256(raw).hexdigest(),
+    )
+    lifecycle.record_review(**arguments)
+
+    body = io.BytesIO(raw)
+    s3 = Mock()
+    s3.get_object.return_value = {
+        "Body": body,
+        "VersionId": "approval-one",
+    }
+    authorise = Mock(return_value=None)
+    gate = ContractApprovalGate(
+        lifecycle=lifecycle,
+        s3_client=s3,
+        approval_bucket="example-contract-evidence",
+        approval_prefix="approvals/",
+        bucket_owner_account_id="123456789012",
+        authorise=authorise,
+    )
+    return gate, s3, body, authorise
+
+
+def test_approval_gate_verifies_exact_evidence(lifecycle_setup):
+    gate, s3, body, authorise = approved_setup(lifecycle_setup)
+
+    result = gate.verify(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+
+    assert result["expected_revision"] == 2
+    assert result["assessment"]["candidate_reference"]["version_id"] == (
+        "candidate-one"
+    )
+    authorise.assert_called_once_with(
+        "authenticated-reviewer", lifecycle_setup[2]
+    )
+    s3.get_object.assert_called_once_with(
+        Bucket="example-contract-evidence",
+        Key="approvals/request-one/review-one.json",
+        VersionId="approval-one",
+        ExpectedBucketOwner="123456789012",
+    )
+    assert body.closed
+
+
+def test_pending_review_cannot_resume(lifecycle_setup):
+    gate, s3, body, _ = approved_setup(lifecycle_setup)
+
+    with pytest.raises(ContractApprovalBlocked, match="does not exist"):
+        gate.verify(
+            table=lifecycle_setup[2],
+            request_id="another-request",
+        )
+
+    s3.get_object.assert_not_called()
+    body.close()
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["candidate_reference", "baseline_reference", "evidence_reference"],
+)
+def test_approval_must_cover_exact_assessment(lifecycle_setup, field):
+    def change(document):
+        document["assessment"][field] = {
+            **document["assessment"][field],
+            "version_id": "different-version",
+        }
+
+    gate, _, body, _ = approved_setup(
+        lifecycle_setup, mutate_document=change
+    )
+
+    with pytest.raises(ContractApprovalBlocked, match="exact"):
+        gate.verify(
+            table=lifecycle_setup[2],
+            request_id="request-one",
+        )
+
+    assert body.closed
+
+
+def test_approval_checksum_mismatch_blocks_resume(lifecycle_setup):
+    gate, s3, original_body, _ = approved_setup(lifecycle_setup)
+    replacement = io.BytesIO(b"{}")
+    s3.get_object.return_value["Body"] = replacement
+
+    with pytest.raises(ContractApprovalBlocked, match="checksum"):
+        gate.verify(
+            table=lifecycle_setup[2],
+            request_id="request-one",
+        )
+
+    assert replacement.closed
+    original_body.close()
+
+
+def test_reviewer_permission_is_checked_again(lifecycle_setup):
+    gate, s3, body, authorise = approved_setup(lifecycle_setup)
+    authorise.side_effect = PermissionError("Permission revoked")
+
+    with pytest.raises(PermissionError):
+        gate.verify(
+            table=lifecycle_setup[2],
+            request_id="request-one",
+        )
+
+    s3.get_object.assert_not_called()
+    body.close()
+
+
+def test_approval_from_untrusted_location_is_rejected(lifecycle_setup):
+    gate, s3, body, _ = approved_setup(lifecycle_setup)
+    gate.approval_prefix = "different-approvals/"
+
+    with pytest.raises(ContractApprovalBlocked, match="trusted location"):
+        gate.verify(
+            table=lifecycle_setup[2],
+            request_id="request-one",
+        )
+
+    s3.get_object.assert_not_called()
+    body.close()
+
+def test_existing_pending_review_cannot_resume(lifecycle_setup):
+    gate, s3, body, _ = approved_setup(lifecycle_setup)
+
+    submit(lifecycle_setup, request_id="pending-request")
+
+    with pytest.raises(
+        ContractApprovalBlocked,
+        match="not currently approved",
+    ):
+        gate.verify(
+            table=lifecycle_setup[2],
+            request_id="pending-request",
+        )
+
+    s3.get_object.assert_not_called()
+    body.close()

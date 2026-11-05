@@ -1,0 +1,236 @@
+import copy
+import hashlib
+import json
+
+from ingestion_registry.contract_lifecycle import ContractLifecycle
+from ingestion_registry.identity import TableIdentity
+from ingestion_registry.references import S3ObjectReference
+
+
+class ContractApprovalBlocked(ValueError):
+    """The current request does not have verifiable approval."""
+
+
+def _unique_object(pairs):
+    result = {}
+
+    for key, value in pairs:
+        if key in result:
+            raise ContractApprovalBlocked(
+                "Approval evidence contains duplicate JSON keys"
+            )
+        result[key] = value
+
+    return result
+
+
+def _reject_constant(value):
+    raise ContractApprovalBlocked(
+        f"Approval evidence contains invalid JSON constant: {value}"
+    )
+
+
+class ContractApprovalGate:
+    def __init__(
+        self,
+        *,
+        lifecycle: ContractLifecycle,
+        s3_client,
+        approval_bucket: str,
+        approval_prefix: str,
+        bucket_owner_account_id: str,
+        authorise,
+    ):
+        if (
+            not isinstance(approval_bucket, str)
+            or not approval_bucket
+            or approval_bucket != approval_bucket.strip()
+            or "/" in approval_bucket
+        ):
+            raise ValueError(
+                "approval_bucket must be an explicit bucket name"
+            )
+
+        if (
+            not isinstance(approval_prefix, str)
+            or not approval_prefix.endswith("/")
+            or approval_prefix != approval_prefix.strip()
+            or any(
+                part in ("", ".", "..")
+                for part in approval_prefix[:-1].split("/")
+            )
+        ):
+            raise ValueError(
+                "approval_prefix must contain explicit path "
+                "segments and end with '/'"
+            )
+
+        if (
+            not isinstance(bucket_owner_account_id, str)
+            or len(bucket_owner_account_id) != 12
+            or any(
+                character not in "0123456789"
+                for character in bucket_owner_account_id
+            )
+        ):
+            raise ValueError(
+                "bucket_owner_account_id must contain 12 digits"
+            )
+
+        if not callable(authorise):
+            raise ValueError("authorise must be callable")
+
+        self.lifecycle = lifecycle
+        self.s3 = s3_client
+        self.approval_bucket = approval_bucket
+        self.approval_prefix = approval_prefix
+        self.bucket_owner_account_id = bucket_owner_account_id
+        self.authorise = authorise
+
+    def verify(
+        self,
+        *,
+        table: TableIdentity,
+        request_id: str,
+    ) -> dict:
+        current = self.lifecycle.read(
+            table=table,
+            request_id=request_id,
+        )
+
+        if current is None:
+            raise ContractApprovalBlocked(
+                "Contract request does not exist"
+            )
+
+        if current.get("status") != "APPROVED":
+            raise ContractApprovalBlocked(
+                "Contract request is not currently approved"
+            )
+
+        review = current.get("review")
+
+        if (
+            not isinstance(review, dict)
+            or review.get("outcome") != "APPROVED"
+            or review.get("expected_request_fingerprint")
+            != current.get("request_fingerprint")
+            or review.get("expected_revision")
+            != current.get("revision") - 1
+        ):
+            raise ContractApprovalBlocked(
+                "Review does not match the current request"
+            )
+
+        if self.authorise(review["reviewer"], table) is not None:
+            raise ContractApprovalBlocked(
+                "Authorisation must raise on denial "
+                "and return None on success"
+            )
+
+        try:
+            reference = S3ObjectReference(
+                **review["evidence_reference"]
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise ContractApprovalBlocked(
+                "Review has an invalid approval evidence reference"
+            ) from error
+
+        if (
+            reference.bucket_name != self.approval_bucket
+            or not reference.object_key.startswith(
+                self.approval_prefix
+            )
+        ):
+            raise ContractApprovalBlocked(
+                "Approval evidence is outside the trusted location"
+            )
+
+        response = self.s3.get_object(
+            Bucket=reference.bucket_name,
+            Key=reference.object_key,
+            VersionId=reference.version_id,
+            ExpectedBucketOwner=self.bucket_owner_account_id,
+        )
+        body = response["Body"]
+
+        try:
+            if response.get("VersionId") != reference.version_id:
+                raise ContractApprovalBlocked(
+                    "Approval object version does not match"
+                )
+
+            raw = body.read(65537)
+        finally:
+            body.close()
+
+        if len(raw) > 65536:
+            raise ContractApprovalBlocked(
+                "Approval evidence exceeds 64 KiB"
+            )
+
+        if hashlib.sha256(raw).hexdigest() != reference.sha256:
+            raise ContractApprovalBlocked(
+                "Approval evidence checksum does not match"
+            )
+
+        try:
+            document = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_object,
+                parse_constant=_reject_constant,
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ContractApprovalBlocked(
+                "Approval evidence is not valid UTF-8 JSON"
+            ) from error
+
+        expected = {
+            "approval_version": 1,
+            "table_identity": current["table_identity"],
+            "request_id": current["request_id"],
+            "request_fingerprint": current["request_fingerprint"],
+            "review_id": review["review_id"],
+            "reviewer": review["reviewer"],
+            "outcome": "APPROVED",
+            "assessment": current["assessment"],
+            "policy": current["policy"],
+        }
+
+        def canonical(value):
+            return json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+
+        if canonical(document) != canonical(expected):
+            raise ContractApprovalBlocked(
+                "Approval evidence does not cover the exact "
+                "assessment, policy and review"
+            )
+
+        latest = self.lifecycle.read(
+            table=table,
+            request_id=request_id,
+        )
+
+        if latest != current:
+            raise ContractApprovalBlocked(
+                "Contract request changed during verification; "
+                "read and reconcile the current decision"
+            )
+
+        return {
+            "request_key": current["pk"],
+            "request_fingerprint": current["request_fingerprint"],
+            "expected_revision": int(current["revision"]),
+            "approval_reference": copy.deepcopy(
+                review["evidence_reference"]
+            ),
+            "assessment": copy.deepcopy(current["assessment"]),
+            "policy": copy.deepcopy(current["policy"]),
+        }
