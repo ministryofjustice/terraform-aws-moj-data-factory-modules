@@ -599,3 +599,188 @@ def test_handler_generates_only_selected_table(monkeypatch, config):
     assert result["contracts"] == [generated]
     connection.rollback.assert_not_called()
     engine.dispose.assert_called_once()
+
+@pytest.fixture
+def candidate_environment(monkeypatch):
+    destination = {
+        "bucket_name": "example-candidates",
+        "bucket_owner_account_id": "123456789012",
+        "kms_key_arn": (
+            "arn:aws:kms:eu-west-2:123456789012:"
+            "key/11111111-2222-3333-4444-555555555555"
+        ),
+    }
+    monkeypatch.setenv(
+        "CONTRACT_CANDIDATE_BUCKET",
+        destination["bucket_name"],
+    )
+    monkeypatch.setenv(
+        "CONTRACT_CANDIDATE_BUCKET_OWNER",
+        destination["bucket_owner_account_id"],
+    )
+    monkeypatch.setenv(
+        "CONTRACT_CANDIDATE_KMS_KEY_ARN",
+        destination["kms_key_arn"],
+    )
+    return destination
+
+
+def candidate_request(config):
+    return {
+        **selected_table_request(config),
+        "operation": "GENERATE_CANDIDATE",
+        "request_id": "contract-request-one",
+    }
+
+
+def test_candidate_request_resolves_trusted_destination(
+    config, candidate_environment
+):
+    tables, destination = main.resolve_generation_request(
+        candidate_request(config), config
+    )
+
+    assert tables == ["first_table"]
+    assert destination == {
+        **candidate_environment,
+        "request_id": "contract-request-one",
+    }
+
+
+def test_legacy_request_requires_no_candidate_configuration(
+    config, monkeypatch
+):
+    for name in (
+        "CONTRACT_CANDIDATE_BUCKET",
+        "CONTRACT_CANDIDATE_BUCKET_OWNER",
+        "CONTRACT_CANDIDATE_KMS_KEY_ARN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    tables, destination = main.resolve_generation_request({}, config)
+
+    assert tables == config["TABLE_LIST"]
+    assert destination is None
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "CONTRACT_CANDIDATE_BUCKET",
+        "CONTRACT_CANDIDATE_BUCKET_OWNER",
+        "CONTRACT_CANDIDATE_KMS_KEY_ARN",
+    ],
+)
+def test_missing_candidate_configuration_fails_before_database_access(
+    config, candidate_environment, monkeypatch, name
+):
+    secret_lookup = Mock()
+    monkeypatch.delenv(name)
+    monkeypatch.setattr(
+        main, "validate_configuration", lambda: config
+    )
+    monkeypatch.setattr(
+        main, "get_database_secret", secret_lookup
+    )
+
+    with pytest.raises(ValueError, match=name):
+        main.lambda_handler(
+            candidate_request(config),
+            SimpleNamespace(aws_request_id="candidate-execution"),
+        )
+
+    secret_lookup.assert_not_called()
+
+
+def test_candidate_request_cannot_override_destination(
+    config, candidate_environment
+):
+    request = candidate_request(config)
+    request["bucket_name"] = "untrusted-bucket"
+
+    with pytest.raises(ValueError, match="exactly"):
+        main.resolve_generation_request(request, config)
+
+
+def test_candidate_generation_uses_candidate_storage(
+    config, candidate_environment, monkeypatch
+):
+    engine = Mock()
+    connection = Mock()
+    engine.connect.return_value.__enter__ = Mock(
+        return_value=connection
+    )
+    engine.connect.return_value.__exit__ = Mock(
+        return_value=False
+    )
+
+    monkeypatch.setattr(
+        main, "validate_configuration", lambda: config
+    )
+    monkeypatch.setattr(
+        main, "get_database_secret", lambda _: {}
+    )
+    monkeypatch.setattr(
+        main, "build_database_connection", lambda *_: None
+    )
+    monkeypatch.setattr(
+        main, "create_database_engine", lambda *_: engine
+    )
+    monkeypatch.setattr(main, "inspect", lambda _: Mock())
+    monkeypatch.setattr(
+        main,
+        "get_table_metadata",
+        lambda *_: (
+            [
+                {
+                    "name": "id",
+                    "type": sql_types.Integer(),
+                    "nullable": False,
+                }
+            ],
+            ["id"],
+        ),
+    )
+
+    candidate_reference = {
+        "bucket_name": "example-candidates",
+        "object_key": "candidates/example/contract.avsc",
+        "version_id": "candidate-one",
+        "sha256": "a" * 64,
+    }
+    store = Mock(
+        return_value={
+            "status": "CANDIDATE_STORED",
+            "candidate_reference": candidate_reference,
+        }
+    )
+    final_storage = Mock()
+
+    monkeypatch.setattr(main, "store_candidate", store)
+    monkeypatch.setattr(main, "save_contract", final_storage)
+
+    result = main.lambda_handler(
+        candidate_request(config),
+        SimpleNamespace(aws_request_id="candidate-execution"),
+    )
+
+    final_storage.assert_not_called()
+    store.assert_called_once()
+
+    request = store.call_args.kwargs
+    generated = json.loads(request["content"])
+
+    assert request["bucket_name"] == "example-candidates"
+    assert request["request_id"] == "contract-request-one"
+    assert request["identity"]["table_name"] == "first_table"
+    assert generated["table_name"] == "first_table"
+
+    assert len(result["contracts"]) == 1
+    candidate = result["contracts"][0]
+    assert candidate["status"] == "CANDIDATE_STORED"
+    assert candidate["candidate_reference"] == candidate_reference
+    assert candidate["contract_fingerprint"] == (
+        main.calculate_contract_fingerprint(generated)
+    )
+    assert "s3_contract_uri" not in candidate
+    engine.dispose.assert_called_once()

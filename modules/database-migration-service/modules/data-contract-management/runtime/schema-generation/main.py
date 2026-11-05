@@ -11,6 +11,7 @@ from sqlalchemy.dialects import oracle, postgresql
 from fastavro.schema import parse_schema
 from botocore.exceptions import ClientError
 from logger import get_logger
+from candidate_storage import store_candidate
 from urllib.parse import quote
 
 
@@ -952,6 +953,7 @@ def generate_contract(
     namespace: str,
     execution_id: str,
     contacts: dict,
+    candidate_destination: dict | None = None,
 ):
     log_context = {
         "execution_id": execution_id,
@@ -999,19 +1001,47 @@ def generate_contract(
         contacts=contacts,
     )
 
-    publication = save_contract(
-        schema_registry_bucket,
-        contract,
-    )
+    if candidate_destination is None:
+        publication = save_contract(
+            schema_registry_bucket,
+            contract,
+        )
+    else:
+        validate_avro_contract(contract)
+
+        publication = store_candidate(
+            s3_client=s3,
+            content=normalise_contract(contract).encode("utf-8"),
+            identity={
+                field: contract[field]
+                for field in (
+                    "source",
+                    "database_name",
+                    "schema_name",
+                    "table_name",
+                    "contract_version",
+                )
+            },
+            **candidate_destination,
+        )
+        publication["contract_fingerprint"] = (
+            calculate_contract_fingerprint(contract)
+        )
+
+    candidate_reference = publication.get("candidate_reference", {})
 
     logger.info(
         "Schema generation completed.",
         extra={
             **log_context,
             "publication_status": publication["status"],
-            "object_key": publication["s3_key"],
+            "object_key": publication.get(
+                "s3_key",
+                candidate_reference.get("object_key"),
+            ),
             "s3_object_version_id": publication.get(
-                "s3_object_version_id"
+                "s3_object_version_id",
+                candidate_reference.get("version_id"),
             ),
         },
     )
@@ -1083,6 +1113,100 @@ def resolve_requested_tables(event, config):
 
     return [table_name]
 
+def resolve_generation_request(event, config):
+    if not isinstance(event, dict):
+        raise ValueError("Generation request must be a JSON object.")
+
+    if "operation" not in event:
+        return resolve_requested_tables(event, config), None
+
+    if event["operation"] != "GENERATE_CANDIDATE":
+        raise ValueError("Unsupported generation operation.")
+
+    expected_fields = {
+        "operation",
+        "request_id",
+        "source",
+        "database_name",
+        "schema_name",
+        "table_name",
+        "contract_version",
+    }
+
+    if set(event) != expected_fields:
+        raise ValueError(
+            "Candidate generation requires exactly: "
+            + ", ".join(sorted(expected_fields))
+        )
+
+    request_id = event["request_id"]
+
+    if (
+        not isinstance(request_id, str)
+        or not request_id
+        or request_id != request_id.strip()
+        or len(request_id.encode("utf-8")) > 256
+    ):
+        raise ValueError(
+            "request_id must contain 1 to 256 UTF-8 bytes "
+            "without surrounding whitespace."
+        )
+
+    selected_request = {
+        field: value
+        for field, value in event.items()
+        if field not in {"operation", "request_id"}
+    }
+    tables = resolve_requested_tables(selected_request, config)
+
+    destination = {
+        "request_id": request_id,
+        "bucket_name": os.getenv("CONTRACT_CANDIDATE_BUCKET"),
+        "bucket_owner_account_id": os.getenv(
+            "CONTRACT_CANDIDATE_BUCKET_OWNER"
+        ),
+        "kms_key_arn": os.getenv("CONTRACT_CANDIDATE_KMS_KEY_ARN"),
+    }
+
+    bucket = destination["bucket_name"]
+
+    if (
+        not isinstance(bucket, str)
+        or not bucket
+        or bucket != bucket.strip()
+        or "/" in bucket
+    ):
+        raise ValueError(
+            "CONTRACT_CANDIDATE_BUCKET must be configured "
+            "with an explicit bucket name."
+        )
+
+    owner = destination["bucket_owner_account_id"]
+
+    if (
+        not isinstance(owner, str)
+        or re.fullmatch(r"[0-9]{12}", owner) is None
+    ):
+        raise ValueError(
+            "CONTRACT_CANDIDATE_BUCKET_OWNER must contain 12 digits."
+        )
+
+    key_arn = destination["kms_key_arn"]
+
+    if (
+        not isinstance(key_arn, str)
+        or re.fullmatch(
+            r"arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/"
+            r"[A-Za-z0-9-]+",
+            key_arn,
+        ) is None
+    ):
+        raise ValueError(
+            "CONTRACT_CANDIDATE_KMS_KEY_ARN must be "
+            "an explicit KMS key ARN."
+        )
+
+    return tables, destination
 
 def lambda_handler(event, context):
     execution_id = getattr(context, "aws_request_id", None)
@@ -1095,7 +1219,9 @@ def lambda_handler(event, context):
 
     try:
         config = validate_configuration()
-        requested_tables = resolve_requested_tables(event, config)
+        requested_tables, candidate_destination = (
+            resolve_generation_request(event, config)
+        )
 
         log_context.update(
             {
@@ -1155,6 +1281,15 @@ def lambda_handler(event, context):
                         namespace=config["CONTRACT_NAMESPACE"],
                         execution_id=execution_id,
                         contacts=config["CONTRACT_CONTACTS"],
+                        **(
+                            {
+                                "candidate_destination": (
+                                    candidate_destination
+                                )
+                            }
+                            if candidate_destination is not None
+                            else {}
+                        ),
                     )
 
                     generated_contracts.append(result)
