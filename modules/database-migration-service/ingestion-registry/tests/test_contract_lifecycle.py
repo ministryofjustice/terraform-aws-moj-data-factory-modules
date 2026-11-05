@@ -3,7 +3,9 @@ from dataclasses import replace
 import boto3
 import pytest
 from moto import mock_aws
+from unittest.mock import Mock
 
+from ingestion_registry.contract_lifecycle import ContractReviewConflict
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.contract_lifecycle import (
     ContractLifecycle,
@@ -213,3 +215,160 @@ def test_tables_have_independent_request_namespaces(lifecycle_setup):
 def test_invalid_request_id_is_rejected(lifecycle_setup, request_id):
     with pytest.raises(ValueError, match="request_id"):
         submit(lifecycle_setup, request_id=request_id)
+
+def review_arguments(setup, request):
+    return {
+        "table": setup[2],
+        "request_id": "request-one",
+        "review_id": "review-one",
+        "reviewer": "authenticated-reviewer",
+        "outcome": "APPROVED",
+        "expected_revision": int(request["revision"]),
+        "expected_request_fingerprint": request["request_fingerprint"],
+        "evidence_reference": reference(
+            "approvals/request-one/review-one.json",
+            "approval-one",
+        ),
+        "authorise": Mock(return_value=None),
+    }
+
+
+@pytest.mark.parametrize("outcome", ["APPROVED", "REJECTED"])
+def test_review_updates_request_and_records_evidence(
+    lifecycle_setup, outcome
+):
+    registry, lifecycle, table, _ = lifecycle_setup
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    arguments["outcome"] = outcome
+
+    result = lifecycle.record_review(**arguments)
+
+    assert result["status"] == outcome
+    assert result["revision"] == 2
+    assert result["review"]["reviewer"] == "authenticated-reviewer"
+    assert result["review"]["evidence_reference"]["version_id"] == (
+        "approval-one"
+    )
+    arguments["authorise"].assert_called_once_with(
+        "authenticated-reviewer", table
+    )
+    assert lifecycle.read(
+        table=table, request_id="request-one"
+    ) == result
+
+    items = registry.client.scan(
+        TableName=registry.table_name,
+        ConsistentRead=True,
+    )["Items"]
+    assert len(items) == 2
+
+
+def test_duplicate_review_returns_original_result(lifecycle_setup):
+    _, lifecycle, _, _ = lifecycle_setup
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+
+    first = lifecycle.record_review(**arguments)
+    second = lifecycle.record_review(**arguments)
+
+    assert second == first
+    assert arguments["authorise"].call_count == 2
+
+
+def test_review_id_cannot_be_reused_for_different_outcome(
+    lifecycle_setup,
+):
+    lifecycle = lifecycle_setup[1]
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    lifecycle.record_review(**arguments)
+
+    arguments["outcome"] = "REJECTED"
+
+    with pytest.raises(ContractReviewConflict, match="different content"):
+        lifecycle.record_review(**arguments)
+
+
+def test_another_review_cannot_overwrite_completed_review(
+    lifecycle_setup,
+):
+    lifecycle = lifecycle_setup[1]
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    lifecycle.record_review(**arguments)
+
+    arguments["review_id"] = "review-two"
+    arguments["expected_revision"] = 2
+    arguments["outcome"] = "REJECTED"
+
+    with pytest.raises(ContractReviewConflict, match="pending review"):
+        lifecycle.record_review(**arguments)
+
+
+def test_review_rejects_wrong_assessment_fingerprint(lifecycle_setup):
+    lifecycle = lifecycle_setup[1]
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    arguments["expected_request_fingerprint"] = "b" * 64
+
+    with pytest.raises(ContractReviewConflict, match="exact assessment"):
+        lifecycle.record_review(**arguments)
+
+    assert lifecycle.read(
+        table=lifecycle_setup[2], request_id="request-one"
+    )["status"] == "PENDING_REVIEW"
+
+
+def test_stale_review_is_rejected(lifecycle_setup):
+    lifecycle = lifecycle_setup[1]
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    arguments["expected_revision"] = 2
+
+    with pytest.raises(ContractReviewConflict, match="revision changed"):
+        lifecycle.record_review(**arguments)
+
+
+def test_unauthorised_review_does_not_change_request(lifecycle_setup):
+    lifecycle = lifecycle_setup[1]
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    arguments["authorise"] = Mock(
+        side_effect=PermissionError("Reviewer is not permitted")
+    )
+
+    with pytest.raises(PermissionError):
+        lifecycle.record_review(**arguments)
+
+    assert lifecycle.read(
+        table=lifecycle_setup[2], request_id="request-one"
+    ) == request
+
+
+def test_denial_return_value_is_not_treated_as_authorisation(
+    lifecycle_setup,
+):
+    lifecycle = lifecycle_setup[1]
+    request = submit(lifecycle_setup)
+    arguments = review_arguments(lifecycle_setup, request)
+    arguments["authorise"] = Mock(return_value=False)
+
+    with pytest.raises(ValueError, match="return None"):
+        lifecycle.record_review(**arguments)
+
+
+def test_blocked_assessment_cannot_be_approved(lifecycle_setup):
+    lifecycle = lifecycle_setup[1]
+    request = submit(
+        lifecycle_setup,
+        assessment=replace(
+            lifecycle_setup[3],
+            compatibility=CompatibilityOutcome.UNSUPPORTED,
+        ),
+    )
+
+    with pytest.raises(ContractReviewConflict, match="pending review"):
+        lifecycle.record_review(
+            **review_arguments(lifecycle_setup, request)
+        )
