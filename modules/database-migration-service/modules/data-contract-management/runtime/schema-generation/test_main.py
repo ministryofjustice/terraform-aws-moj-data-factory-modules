@@ -730,8 +730,9 @@ def test_candidate_request_cannot_override_destination(
         main.resolve_generation_request(request, config)
 
 
+@pytest.mark.parametrize("reserved_version", ["v1", "v2"])
 def test_candidate_generation_uses_candidate_storage(
-    config, candidate_environment, monkeypatch
+    config, candidate_environment, monkeypatch, reserved_version
 ):
     engine = Mock()
     connection = Mock()
@@ -787,8 +788,15 @@ def test_candidate_generation_uses_candidate_storage(
     monkeypatch.setattr(main, "store_candidate", store)
     monkeypatch.setattr(main, "save_contract", final_storage)
 
+    generation_request = candidate_request(config)
+    generation_request["contract_version"] = reserved_version
+
+    main.read_contract_version_reservation.return_value[
+        "contract_version"
+    ] = reserved_version
+
     result = main.lambda_handler(
-        candidate_request(config),
+        generation_request,
         SimpleNamespace(aws_request_id="candidate-execution"),
     )
 
@@ -802,6 +810,9 @@ def test_candidate_generation_uses_candidate_storage(
     assert request["request_id"] == "contract-request-one"
     assert request["identity"]["table_name"] == "first_table"
     assert generated["table_name"] == "first_table"
+    assert request["identity"]["contract_version"] == reserved_version
+    assert generated["contract_version"] == reserved_version
+    assert config["CONTRACT_VERSION"] == "v1"
 
     assert len(result["contracts"]) == 1
     candidate = result["contracts"][0]
