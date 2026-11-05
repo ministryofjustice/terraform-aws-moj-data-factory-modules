@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
+from botocore.exceptions import ClientError
 
 from ingestion_registry.identity import TableIdentity
 from ingestion_registry.references import S3ObjectReference
@@ -96,6 +97,139 @@ class ContractCandidateReader:
         self.candidate_prefix = candidate_prefix
         self.bucket_owner_account_id = bucket_owner_account_id
         self.max_bytes = max_bytes
+
+    def recover(
+        self,
+        *,
+        table: TableIdentity,
+        contract_version: str,
+        request_id: str,
+        kms_key_arn: str,
+    ) -> VerifiedCandidate | None:
+        if not isinstance(table, TableIdentity):
+            raise ValueError("table must be a TableIdentity")
+
+        if (
+            not isinstance(contract_version, str)
+            or re.fullmatch(
+                r"v[1-9][0-9]*",
+                contract_version,
+            ) is None
+        ):
+            raise ValueError("contract_version must use v1, v2, etc.")
+
+        if (
+            not isinstance(request_id, str)
+            or not request_id
+            or request_id != request_id.strip()
+            or len(request_id.encode("utf-8")) > 256
+        ):
+            raise ValueError(
+                "request_id must contain 1 to 256 UTF-8 bytes "
+                "without surrounding whitespace"
+            )
+
+        if (
+            not isinstance(kms_key_arn, str)
+            or re.fullmatch(
+                r"arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/"
+                r"[A-Za-z0-9-]+",
+                kms_key_arn,
+            ) is None
+        ):
+            raise ValueError(
+                "kms_key_arn must be an explicit KMS key ARN"
+            )
+
+        identity = {
+            "source": table.source,
+            "database_name": table.database_name,
+            "schema_name": table.schema_name,
+            "table_name": table.table_name,
+            "contract_version": contract_version,
+        }
+
+        # This is the version-1 candidate storage key protocol.
+        # Keep it consistent with schema-generation/candidate_storage.py.
+        request_identity = json.dumps(
+            {
+                "candidate_request_version": 1,
+                "request_id": request_id,
+                "identity": identity,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+
+        digest = hashlib.sha256(request_identity).hexdigest()
+        object_key = f"candidates/{digest}/contract.avsc"
+
+        if not object_key.startswith(self.candidate_prefix):
+            raise ContractCandidateError(
+                "Candidate recovery is outside the configured location"
+            )
+
+        try:
+            response = self.s3.get_object(
+                Bucket=self.candidate_bucket,
+                Key=object_key,
+                ExpectedBucketOwner=self.bucket_owner_account_id,
+            )
+        except ClientError as error:
+            # Access failures and other AWS errors must propagate.
+            # They must never be interpreted as an absent candidate.
+            if error.response.get("Error", {}).get("Code") == "NoSuchKey":
+                return None
+            raise
+
+        body = response["Body"]
+
+        try:
+            version_id = response.get("VersionId")
+
+            if (
+                not isinstance(version_id, str)
+                or not version_id
+                or version_id != version_id.strip()
+                or version_id == "null"
+            ):
+                raise ContractCandidateError(
+                    "Candidate recovery requires a versioned object"
+                )
+
+            if (
+                response.get("ServerSideEncryption") != "aws:kms"
+                or response.get("SSEKMSKeyId") != kms_key_arn
+            ):
+                raise ContractCandidateError(
+                    "Recovered candidate encryption does not match configuration"
+                )
+
+            raw = body.read(self.max_bytes + 1)
+        finally:
+            body.close()
+
+        if len(raw) > self.max_bytes:
+            raise ContractCandidateError(
+                "Candidate exceeds the configured size limit"
+            )
+
+        reference = S3ObjectReference(
+            bucket_name=self.candidate_bucket,
+            object_key=object_key,
+            version_id=version_id,
+            sha256=hashlib.sha256(raw).hexdigest(),
+        )
+
+        # Discovery finds the current object. Verification then reads
+        # its exact immutable version and checks the selected identity.
+        return self.read(
+            table=table,
+            contract_version=contract_version,
+            reference=reference,
+        )
 
     def read(
         self,
