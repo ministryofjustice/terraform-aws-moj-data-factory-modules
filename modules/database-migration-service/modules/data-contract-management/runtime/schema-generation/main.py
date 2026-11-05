@@ -1113,6 +1113,90 @@ def resolve_requested_tables(event, config):
 
     return [table_name]
 
+def read_contract_version_reservation(table_name, partition_key):
+    table = boto3.resource("dynamodb").Table(table_name)
+
+    return table.get_item(
+        Key={"pk": partition_key, "sk": "META"},
+        ConsistentRead=True,
+    ).get("Item")
+
+
+def verify_contract_version_reservation(event, config):
+    reference = event.get("version_reservation")
+
+    if (
+        not isinstance(reference, dict)
+        or set(reference) != {"request_key", "request_fingerprint"}
+        or not isinstance(reference["request_key"], str)
+        or re.fullmatch(
+            r"CONTRACTVERSIONREQUEST#[a-f0-9]{64}",
+            reference["request_key"],
+        ) is None
+        or not isinstance(reference["request_fingerprint"], str)
+        or re.fullmatch(
+            r"[a-f0-9]{64}",
+            reference["request_fingerprint"],
+        ) is None
+    ):
+        raise ValueError(
+            "version_reservation requires an explicit reservation "
+            "request_key and request_fingerprint."
+        )
+
+    table_name = os.getenv("CONTRACT_CONTROL_TABLE")
+    environment = os.getenv("CONTRACT_ENVIRONMENT")
+
+    if (
+        not isinstance(table_name, str)
+        or re.fullmatch(r"[A-Za-z0-9_.-]{3,255}", table_name) is None
+    ):
+        raise ValueError(
+            "CONTRACT_CONTROL_TABLE must contain a valid table name."
+        )
+
+    if (
+        not isinstance(environment, str)
+        or len(environment) > 63
+        or re.fullmatch(
+            r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*",
+            environment,
+        ) is None
+    ):
+        raise ValueError(
+            "CONTRACT_ENVIRONMENT must contain a valid environment."
+        )
+
+    record = read_contract_version_reservation(
+        table_name,
+        reference["request_key"],
+    )
+
+    expected_identity = {
+        "environment": environment,
+        "source": config["CONTRACT_SERVICE"],
+        "database_name": config["DATABASE_NAME"],
+        "schema_name": config["SCHEMA_NAME"],
+        "table_name": event["table_name"],
+    }
+
+    if (
+        not isinstance(record, dict)
+        or record.get("record_type")
+        != "CONTRACT_VERSION_RESERVATION"
+        or record.get("pk") != reference["request_key"]
+        or record.get("sk") != "META"
+        or record.get("request_id") != event["request_id"]
+        or record.get("request_fingerprint")
+        != reference["request_fingerprint"]
+        or record.get("table_identity") != expected_identity
+        or record.get("contract_version") != event["contract_version"]
+    ):
+        raise ValueError(
+            "Version reservation does not match the selected "
+            "generation request, environment, table and version."
+        )
+
 def resolve_generation_request(event, config):
     if not isinstance(event, dict):
         raise ValueError("Generation request must be a JSON object.")
@@ -1131,6 +1215,7 @@ def resolve_generation_request(event, config):
         "schema_name",
         "table_name",
         "contract_version",
+        "version_reservation",
     }
 
     if set(event) != expected_fields:
@@ -1152,12 +1237,37 @@ def resolve_generation_request(event, config):
             "without surrounding whitespace."
         )
 
+    version = event["contract_version"]
+
+    if (
+        not isinstance(version, str)
+        or re.fullmatch(r"v[1-9][0-9]*", version) is None
+    ):
+        raise ValueError("contract_version must use v1, v2, etc.")
+
     selected_request = {
-        field: value
-        for field, value in event.items()
-        if field not in {"operation", "request_id"}
+        field: event[field]
+        for field in (
+            "source",
+            "database_name",
+            "schema_name",
+            "table_name",
+            "contract_version",
+        )
     }
-    tables = resolve_requested_tables(selected_request, config)
+
+    # Keep the existing source/table scope checks. A requested version
+    # is usable only after the reservation check immediately below.
+    selection_config = {
+        **config,
+        "CONTRACT_VERSION": version,
+    }
+    tables = resolve_requested_tables(
+        selected_request,
+        selection_config,
+    )
+
+    verify_contract_version_reservation(event, config)
 
     destination = {
         "request_id": request_id,
@@ -1222,6 +1332,11 @@ def lambda_handler(event, context):
         requested_tables, candidate_destination = (
             resolve_generation_request(event, config)
         )
+        if candidate_destination is not None:
+            config = {
+                **config,
+                "CONTRACT_VERSION": event["contract_version"],
+            }
 
         log_context.update(
             {

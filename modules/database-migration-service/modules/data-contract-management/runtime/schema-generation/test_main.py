@@ -601,7 +601,7 @@ def test_handler_generates_only_selected_table(monkeypatch, config):
     engine.dispose.assert_called_once()
 
 @pytest.fixture
-def candidate_environment(monkeypatch):
+def candidate_environment(monkeypatch, config):
     destination = {
         "bucket_name": "example-candidates",
         "bucket_owner_account_id": "123456789012",
@@ -622,6 +622,31 @@ def candidate_environment(monkeypatch):
         "CONTRACT_CANDIDATE_KMS_KEY_ARN",
         destination["kms_key_arn"],
     )
+    monkeypatch.setenv(
+        "CONTRACT_CONTROL_TABLE", "test-contract-control"
+    )
+    monkeypatch.setenv("CONTRACT_ENVIRONMENT", "development")
+
+    reservation = {
+        "pk": "CONTRACTVERSIONREQUEST#" + "c" * 64,
+        "sk": "META",
+        "record_type": "CONTRACT_VERSION_RESERVATION",
+        "request_id": "contract-request-one",
+        "request_fingerprint": "d" * 64,
+        "table_identity": {
+            "environment": "development",
+            "source": config["CONTRACT_SERVICE"],
+            "database_name": config["DATABASE_NAME"],
+            "schema_name": config["SCHEMA_NAME"],
+            "table_name": config["TABLE_LIST"][0],
+        },
+        "contract_version": config["CONTRACT_VERSION"],
+    }
+    monkeypatch.setattr(
+        main,
+        "read_contract_version_reservation",
+        Mock(return_value=reservation),
+    )
     return destination
 
 
@@ -630,8 +655,11 @@ def candidate_request(config):
         **selected_table_request(config),
         "operation": "GENERATE_CANDIDATE",
         "request_id": "contract-request-one",
+        "version_reservation": {
+            "request_key": "CONTRACTVERSIONREQUEST#" + "c" * 64,
+            "request_fingerprint": "d" * 64,
+        },
     }
-
 
 def test_candidate_request_resolves_trusted_destination(
     config, candidate_environment
@@ -784,3 +812,89 @@ def test_candidate_generation_uses_candidate_storage(
     )
     assert "s3_contract_uri" not in candidate
     engine.dispose.assert_called_once()
+
+def test_candidate_can_use_a_verified_reserved_version(
+    config, candidate_environment
+):
+    request = candidate_request(config)
+    request["contract_version"] = "v2"
+
+    main.read_contract_version_reservation.return_value[
+        "contract_version"
+    ] = "v2"
+
+    tables, destination = main.resolve_generation_request(
+        request, config
+    )
+
+    assert tables == ["first_table"]
+    assert destination["request_id"] == "contract-request-one"
+    assert config["CONTRACT_VERSION"] == "v1"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("request_id", "another-request"),
+        ("request_fingerprint", "e" * 64),
+        ("contract_version", "v2"),
+        ("record_type", "INGESTION"),
+    ],
+)
+def test_mismatched_reservation_blocks_database_access(
+    config, candidate_environment, monkeypatch, field, value
+):
+    main.read_contract_version_reservation.return_value[field] = value
+    secret_lookup = Mock()
+
+    monkeypatch.setattr(
+        main, "validate_configuration", lambda: config
+    )
+    monkeypatch.setattr(
+        main, "get_database_secret", secret_lookup
+    )
+
+    with pytest.raises(ValueError, match="Version reservation"):
+        main.lambda_handler(
+            candidate_request(config),
+            SimpleNamespace(aws_request_id="candidate-execution"),
+        )
+
+    secret_lookup.assert_not_called()
+
+
+def test_missing_reservation_blocks_candidate_generation(
+    config, candidate_environment
+):
+    main.read_contract_version_reservation.return_value = None
+
+    with pytest.raises(ValueError, match="Version reservation"):
+        main.resolve_generation_request(
+            candidate_request(config), config
+        )
+
+
+def test_reservation_for_another_environment_is_rejected(
+    config, candidate_environment
+):
+    main.read_contract_version_reservation.return_value[
+        "table_identity"
+    ]["environment"] = "production"
+
+    with pytest.raises(ValueError, match="Version reservation"):
+        main.resolve_generation_request(
+            candidate_request(config), config
+        )
+
+
+def test_reservation_for_another_table_is_rejected(
+    config, candidate_environment
+):
+    main.read_contract_version_reservation.return_value[
+        "table_identity"
+    ]["table_name"] = "another_table"
+
+    with pytest.raises(ValueError, match="Version reservation"):
+        main.resolve_generation_request(
+            candidate_request(config), config
+        )
