@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 
+from botocore.exceptions import ClientError
 from ingestion_registry.contract_lifecycle import ContractLifecycle
 from ingestion_registry.identity import TableIdentity
 from ingestion_registry.references import S3ObjectReference
@@ -234,3 +235,130 @@ class ContractApprovalGate:
             "assessment": copy.deepcopy(current["assessment"]),
             "policy": copy.deepcopy(current["policy"]),
         }
+
+    def authorise_registration(
+        self,
+        *,
+        table: TableIdentity,
+        request_id: str,
+    ) -> dict:
+        verified = self.verify(
+            table=table,
+            request_id=request_id,
+        )
+        registry = self.lifecycle.registry
+
+        record = {
+            "pk": verified["request_key"],
+            "sk": "REGISTRATION_AUTHORIZATION",
+            "record_type": "CONTRACT_REGISTRATION_AUTHORIZATION",
+            "request_fingerprint": verified["request_fingerprint"],
+            "approval_revision": verified["expected_revision"],
+            "approval_reference": verified["approval_reference"],
+            "assessment": verified["assessment"],
+            "policy": verified["policy"],
+        }
+
+        def existing_authorisation():
+            existing = registry._read(
+                record["pk"],
+                record["sk"],
+            )
+
+            if existing is None:
+                return None
+
+            if existing != record:
+                raise ContractApprovalBlocked(
+                    "Registration authorisation already exists "
+                    "for different approval evidence"
+                )
+
+            return copy.deepcopy(existing)
+
+        existing = existing_authorisation()
+
+        actions = [
+            {
+                "ConditionCheck": {
+                    "TableName": registry.table_name,
+                    "Key": registry._encode(
+                        {
+                            "pk": record["pk"],
+                            "sk": "META",
+                        }
+                    ),
+                    "ConditionExpression": (
+                        "#status = :approved "
+                        "AND #revision = :revision "
+                        "AND request_fingerprint = :fingerprint "
+                        "AND #review.#evidence = :evidence"
+                    ),
+                    "ExpressionAttributeNames": {
+                        "#status": "status",
+                        "#revision": "revision",
+                        "#review": "review",
+                        "#evidence": "evidence_reference",
+                    },
+                    "ExpressionAttributeValues": registry._encode(
+                        {
+                            ":approved": "APPROVED",
+                            ":revision": verified["expected_revision"],
+                            ":fingerprint": verified[
+                                "request_fingerprint"
+                            ],
+                            ":evidence": verified[
+                                "approval_reference"
+                            ],
+                        }
+                    ),
+                }
+            }
+        ]
+
+        if existing is None:
+            actions.append(registry._put_new(record))
+
+        try:
+            registry.client.transact_write_items(
+                TransactItems=actions
+            )
+        except ClientError as error:
+            if (
+                error.response["Error"]["Code"]
+                != "TransactionCanceledException"
+            ):
+                raise
+
+            reasons = error.response.get(
+                "CancellationReasons", []
+            )
+
+            if reasons and reasons[0].get("Code") == (
+                "ConditionalCheckFailed"
+            ):
+                raise ContractApprovalBlocked(
+                    "Approval changed before registration "
+                    "authorisation was recorded"
+                ) from error
+
+            if (
+                len(reasons) > 1
+                and reasons[1].get("Code")
+                == "ConditionalCheckFailed"
+            ):
+                self.verify(
+                    table=table,
+                    request_id=request_id,
+                )
+                existing = existing_authorisation()
+
+                if existing is not None:
+                    return self.authorise_registration(
+                        table=table,
+                        request_id=request_id,
+                    )
+
+            raise
+
+        return copy.deepcopy(record)

@@ -548,3 +548,131 @@ def test_existing_pending_review_cannot_resume(lifecycle_setup):
 
     s3.get_object.assert_not_called()
     body.close()
+
+def test_registration_authorisation_records_exact_approval(
+    lifecycle_setup,
+):
+    gate, _, body, _ = approved_setup(lifecycle_setup)
+
+    result = gate.authorise_registration(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+
+    assert result["approval_revision"] == 2
+    assert result["approval_reference"]["version_id"] == "approval-one"
+    assert result["assessment"]["candidate_reference"]["version_id"] == (
+        "candidate-one"
+    )
+    assert result["policy"]["revision"] == "policy-v1"
+    assert body.closed
+
+    stored = lifecycle_setup[0]._read(
+        result["pk"],
+        "REGISTRATION_AUTHORIZATION",
+    )
+    assert stored == result
+
+    current = lifecycle_setup[1].read(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+    assert current["status"] == "APPROVED"
+    assert current["revision"] == 2
+
+
+def test_registration_authorisation_is_idempotent(lifecycle_setup):
+    gate, s3, body, _ = approved_setup(lifecycle_setup)
+    raw = body.getvalue()
+
+    # Each verification must receive a fresh streaming body.
+    s3.get_object.side_effect = lambda **kwargs: {
+        "Body": io.BytesIO(raw),
+        "VersionId": "approval-one",
+    }
+
+    first = gate.authorise_registration(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+    second = gate.authorise_registration(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+
+    assert first == second
+    body.close()
+
+
+def test_pending_request_cannot_authorise_registration(
+    lifecycle_setup,
+):
+    gate, s3, body, _ = approved_setup(lifecycle_setup)
+    request = submit(
+        lifecycle_setup,
+        request_id="pending-request",
+    )
+
+    with pytest.raises(
+        ContractApprovalBlocked,
+        match="not currently approved",
+    ):
+        gate.authorise_registration(
+            table=lifecycle_setup[2],
+            request_id="pending-request",
+        )
+
+    assert lifecycle_setup[0]._read(
+        request["pk"],
+        "REGISTRATION_AUTHORIZATION",
+    ) is None
+    s3.get_object.assert_not_called()
+    body.close()
+
+
+def test_concurrent_approval_change_blocks_registration_authorisation(
+    lifecycle_setup, monkeypatch
+):
+    gate, _, body, _ = approved_setup(lifecycle_setup)
+    registry = lifecycle_setup[0]
+    original_verify = gate.verify
+
+    def verify_then_change(**kwargs):
+        verified = original_verify(**kwargs)
+
+        registry.client.update_item(
+            TableName=registry.table_name,
+            Key=registry._encode(
+                {
+                    "pk": verified["request_key"],
+                    "sk": "META",
+                }
+            ),
+            UpdateExpression="SET #revision = :next",
+            ExpressionAttributeNames={"#revision": "revision"},
+            ExpressionAttributeValues=registry._encode(
+                {":next": verified["expected_revision"] + 1}
+            ),
+        )
+        return verified
+
+    monkeypatch.setattr(gate, "verify", verify_then_change)
+
+    with pytest.raises(
+        ContractApprovalBlocked,
+        match="Approval changed",
+    ):
+        gate.authorise_registration(
+            table=lifecycle_setup[2],
+            request_id="request-one",
+        )
+
+    request = lifecycle_setup[1].read(
+        table=lifecycle_setup[2],
+        request_id="request-one",
+    )
+    assert registry._read(
+        request["pk"],
+        "REGISTRATION_AUTHORIZATION",
+    ) is None
+    assert body.closed
