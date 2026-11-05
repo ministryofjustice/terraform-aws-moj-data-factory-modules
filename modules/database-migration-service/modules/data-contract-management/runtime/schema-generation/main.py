@@ -1025,6 +1025,64 @@ def generate_contract(
         **publication,
     }
 
+def resolve_requested_tables(event, config):
+    if not isinstance(event, dict):
+        raise ValueError("Generation request must be a JSON object.")
+
+    # Preserve the existing configured batch invocation.
+    if not event:
+        return list(config["TABLE_LIST"])
+
+    required_fields = {
+        "source",
+        "database_name",
+        "schema_name",
+        "table_name",
+        "contract_version",
+    }
+
+    if set(event) != required_fields:
+        raise ValueError(
+            "A selected-table generation request must contain exactly: "
+            + ", ".join(sorted(required_fields))
+        )
+
+    for field in required_fields:
+        value = event[field]
+
+        if (
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+        ):
+            raise ValueError(
+                f"{field} must be a non-empty string "
+                "without surrounding whitespace."
+            )
+
+    configured_identity = {
+        "source": config["CONTRACT_SERVICE"],
+        "database_name": config["DATABASE_NAME"],
+        "schema_name": config["SCHEMA_NAME"],
+        "contract_version": config["CONTRACT_VERSION"],
+    }
+
+    for field, expected in configured_identity.items():
+        if event[field] != expected:
+            raise ValueError(
+                f"Requested {field} does not match "
+                "the configured generation capability."
+            )
+
+    table_name = event["table_name"]
+
+    if table_name not in config["TABLE_LIST"]:
+        raise ValueError(
+            "Requested table_name is not permitted by TABLE_LIST."
+        )
+
+    return [table_name]
+
 
 def lambda_handler(event, context):
     execution_id = getattr(context, "aws_request_id", None)
@@ -1037,6 +1095,7 @@ def lambda_handler(event, context):
 
     try:
         config = validate_configuration()
+        requested_tables = resolve_requested_tables(event, config)
 
         log_context.update(
             {
@@ -1052,7 +1111,7 @@ def lambda_handler(event, context):
             "Schema generation configuration loaded.",
             extra={
                 **log_context,
-                "table_count": len(config["TABLE_LIST"]),
+                "table_count": len(requested_tables),
             },
         )
 
@@ -1078,7 +1137,7 @@ def lambda_handler(event, context):
         with db_engine.connect() as connection:
             inspector = inspect(connection)
 
-            for table_name in config["TABLE_LIST"]:
+            for table_name in requested_tables:
                 try:
                     result = generate_contract(
                         inspector=inspector,

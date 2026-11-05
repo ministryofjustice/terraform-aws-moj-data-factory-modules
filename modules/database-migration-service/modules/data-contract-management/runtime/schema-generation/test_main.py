@@ -436,3 +436,166 @@ def test_handler_reports_failure_and_attempts_next_table(
     assert generation.call_count == 2
     connection.rollback.assert_called_once()
     engine.dispose.assert_called_once()
+
+def selected_table_request(config):
+    return {
+        "source": config["CONTRACT_SERVICE"],
+        "database_name": config["DATABASE_NAME"],
+        "schema_name": config["SCHEMA_NAME"],
+        "table_name": config["TABLE_LIST"][0],
+        "contract_version": config["CONTRACT_VERSION"],
+    }
+
+
+def test_empty_request_preserves_configured_tables(config):
+    assert main.resolve_requested_tables({}, config) == [
+        "first_table",
+        "second_table",
+    ]
+
+
+def test_request_selects_only_one_configured_table(config):
+    request = selected_table_request(config)
+    request["table_name"] = "second_table"
+
+    assert main.resolve_requested_tables(request, config) == [
+        "second_table"
+    ]
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["source", "database_name", "schema_name", "contract_version"],
+)
+def test_generation_rejects_different_configured_identity(config, field):
+    request = selected_table_request(config)
+    request[field] = "v2" if field == "contract_version" else "different"
+
+    with pytest.raises(ValueError, match=field):
+        main.resolve_requested_tables(request, config)
+
+
+def test_generation_rejects_unconfigured_table(config):
+    request = selected_table_request(config)
+    request["table_name"] = "unconfigured_table"
+
+    with pytest.raises(ValueError, match="TABLE_LIST"):
+        main.resolve_requested_tables(request, config)
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        None,
+        [],
+        {"table_name": "first_table"},
+    ],
+)
+def test_generation_rejects_invalid_selection_request(config, event):
+    with pytest.raises(ValueError):
+        main.resolve_requested_tables(event, config)
+
+
+def test_generation_rejects_connection_override(config):
+    request = selected_table_request(config)
+    request["DB_SECRET_ARN"] = "another-secret"
+
+    with pytest.raises(ValueError, match="exactly"):
+        main.resolve_requested_tables(request, config)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", " first_table", "first_table ", None, 123],
+)
+def test_generation_rejects_invalid_selected_table(config, value):
+    request = selected_table_request(config)
+    request["table_name"] = value
+
+    with pytest.raises(ValueError, match="table_name"):
+        main.resolve_requested_tables(request, config)
+
+
+def test_invalid_selection_fails_before_database_access(
+    monkeypatch, config
+):
+    secret_lookup = Mock()
+    monkeypatch.setattr(
+        main, "validate_configuration", lambda: config
+    )
+    monkeypatch.setattr(main, "get_database_secret", secret_lookup)
+
+    request = selected_table_request(config)
+    request["table_name"] = "unconfigured_table"
+
+    with pytest.raises(ValueError, match="TABLE_LIST"):
+        main.lambda_handler(
+            request,
+            SimpleNamespace(aws_request_id="test-execution"),
+        )
+
+    secret_lookup.assert_not_called()
+
+def test_handler_generates_only_selected_table(monkeypatch, config):
+    engine = Mock()
+    connection = Mock()
+    inspector = Mock()
+
+    engine.connect.return_value.__enter__ = Mock(
+        return_value=connection
+    )
+    engine.connect.return_value.__exit__ = Mock(
+        return_value=False
+    )
+
+    generated = {
+        **selected_table_request(config),
+        "table_name": "second_table",
+        "status": "STORED",
+    }
+    generation = Mock(return_value=generated)
+
+    monkeypatch.setattr(
+        main, "validate_configuration", lambda: config
+    )
+    monkeypatch.setattr(
+        main, "get_database_secret", lambda _: {}
+    )
+    monkeypatch.setattr(
+        main, "build_database_connection", lambda *_: None
+    )
+    monkeypatch.setattr(
+        main, "create_database_engine", lambda *_: engine
+    )
+    monkeypatch.setattr(
+        main, "inspect", lambda _: inspector
+    )
+    monkeypatch.setattr(
+        main, "generate_contract", generation
+    )
+
+    request = selected_table_request(config)
+    request["table_name"] = "second_table"
+
+    result = main.lambda_handler(
+        request,
+        SimpleNamespace(aws_request_id="test-execution"),
+    )
+
+    generation.assert_called_once_with(
+        inspector=inspector,
+        engine_type=config["ENGINE"],
+        database_name=config["DATABASE_NAME"],
+        schema_name=config["SCHEMA_NAME"],
+        table_name="second_table",
+        service=config["CONTRACT_SERVICE"],
+        schema_registry_bucket=config["SCHEMA_REGISTRY_BUCKET"],
+        contract_version=config["CONTRACT_VERSION"],
+        namespace=config["CONTRACT_NAMESPACE"],
+        execution_id="test-execution",
+        contacts=config["CONTRACT_CONTACTS"],
+    )
+    assert result["status"] == "SUCCEEDED"
+    assert result["contracts"] == [generated]
+    connection.rollback.assert_not_called()
+    engine.dispose.assert_called_once()
