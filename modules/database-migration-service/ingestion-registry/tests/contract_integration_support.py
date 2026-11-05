@@ -1,5 +1,3 @@
-"""Shared Moto fixtures and helpers for contract integration tests."""
-
 import copy
 import hashlib
 import importlib.util
@@ -409,3 +407,93 @@ def expected_contract_id(table):
             ),
         )
     )
+
+def prepare_approved_contract_change(
+    setup,
+    *,
+    request_id,
+    contract_version,
+    baseline_selection,
+):
+    """Create an explicitly approved change using simulated validation.
+
+    This fixture does not implement compatibility assessment.
+    """
+    contract = copy.deepcopy(setup["contract"])
+    contract["contract_version"] = contract_version
+    contract["description"] = f"Candidate for {request_id}"
+    raw = encode(contract)
+
+    candidate = store_reference(
+        setup["s3"],
+        "test-contract-candidates",
+        f"candidates/{request_id}/contract.avsc",
+        raw,
+    )
+
+    baseline = S3ObjectReference(
+        **baseline_selection["registered_contract"][
+            "object_reference"
+        ]
+    )
+
+    validation = store_reference(
+        setup["s3"],
+        "test-contract-evidence",
+        f"validation/{request_id}/result.json",
+        encode(
+            {
+                "validation": "VALID",
+                "compatibility": "COMPATIBLE",
+            }
+        ),
+    )
+
+    assessment = ContractAssessment(
+        validation=ValidationOutcome.VALID,
+        compatibility=CompatibilityOutcome.COMPATIBLE,
+        candidate_reference=candidate,
+        baseline_reference=baseline,
+        evidence_reference=validation,
+    )
+
+    request = setup["lifecycle"].submit_assessment(
+        table=setup["table"],
+        request_id=request_id,
+        assessment=assessment,
+        policy=ContractPolicy(revision="policy-v1"),
+    )
+
+    review_id = f"review-{request_id}"
+    evidence = {
+        "approval_version": 1,
+        "table_identity": request["table_identity"],
+        "request_id": request_id,
+        "request_fingerprint": request["request_fingerprint"],
+        "review_id": review_id,
+        "reviewer": "test-authorised-reviewer",
+        "outcome": "APPROVED",
+        "assessment": copy.deepcopy(request["assessment"]),
+        "policy": copy.deepcopy(request["policy"]),
+    }
+
+    approval_reference = store_reference(
+        setup["s3"],
+        "test-contract-evidence",
+        f"approvals/{request_id}/{review_id}.json",
+        encode(evidence),
+    )
+
+    setup["lifecycle"].record_review(
+        table=setup["table"],
+        request_id=request_id,
+        review_id=review_id,
+        reviewer="test-authorised-reviewer",
+        outcome="APPROVED",
+        expected_revision=1,
+        expected_request_fingerprint=request["request_fingerprint"],
+        evidence_reference=approval_reference,
+        authorise=setup["authorise"],
+    )
+
+    return request
