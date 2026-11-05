@@ -160,6 +160,7 @@ class IngestionProgress:
         expected_revision: int,
         result_reference: dict[str, str] | None = None,
         error_summary: str | None = None,
+        condition_checks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if stage not in STAGES:
             raise ValueError(f"Unsupported stage: {stage!r}")
@@ -240,6 +241,27 @@ class IngestionProgress:
                 "Registry clock must return non-negative epoch seconds"
             )
 
+        additional_checks = copy.deepcopy(
+            condition_checks if condition_checks is not None else []
+        )
+
+        if (
+            not isinstance(additional_checks, list)
+            or len(additional_checks) > 10
+            or any(
+                not isinstance(check, dict)
+                or set(check) != {"ConditionCheck"}
+                or not isinstance(check["ConditionCheck"], dict)
+                or check["ConditionCheck"].get("TableName")
+                != self.registry.table_name
+                for check in additional_checks
+            )
+        ):
+            raise ValueError(
+                "condition_checks must contain at most 10 "
+                "ConditionCheck operations for this Registry table"
+            )
+
         registry = self.registry
         partition_key = f"INGESTION#{claim.ingestion_id}"
         update_key = f"STAGEUPDATE#{_digest(update_id)}"
@@ -265,7 +287,9 @@ class IngestionProgress:
                     "with different content"
                 )
 
-            self._commit(self._guards(claim, now))
+            self._commit(
+                self._guards(claim, now) + additional_checks
+            )
             return copy.deepcopy(previous_update["result"])
 
         existing = self.read_stage(
@@ -336,6 +360,7 @@ class IngestionProgress:
 
         self._commit(
             self._guards(claim, now)
+            + additional_checks
             + [
                 {"Put": stage_put},
                 registry._put_new(update_record),

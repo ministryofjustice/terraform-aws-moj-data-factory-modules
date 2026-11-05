@@ -60,6 +60,7 @@ class IngestionContracts:
         approval_reference: S3ObjectReference,
         update_id: str,
         expected_revision: int,
+        condition_checks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if not isinstance(approval_reference, S3ObjectReference):
             raise ValueError(
@@ -139,4 +140,5 @@ class IngestionContracts:
             update_id=update_id,
             expected_revision=expected_revision,
             result_reference=reference,
+            condition_checks=condition_checks,
         )
