@@ -6,6 +6,7 @@ from botocore.exceptions import ClientError
 from ingestion_registry.contract_lifecycle import ContractLifecycle
 from ingestion_registry.identity import TableIdentity
 from ingestion_registry.references import S3ObjectReference
+from ingestion_registry.contract_authorisation import human_approval_check
 
 
 class ContractApprovalBlocked(ValueError):
@@ -279,41 +280,13 @@ class ContractApprovalGate:
         existing = existing_authorisation()
 
         actions = [
-            {
-                "ConditionCheck": {
-                    "TableName": registry.table_name,
-                    "Key": registry._encode(
-                        {
-                            "pk": record["pk"],
-                            "sk": "META",
-                        }
-                    ),
-                    "ConditionExpression": (
-                        "#status = :approved "
-                        "AND #revision = :revision "
-                        "AND request_fingerprint = :fingerprint "
-                        "AND #review.#evidence = :evidence"
-                    ),
-                    "ExpressionAttributeNames": {
-                        "#status": "status",
-                        "#revision": "revision",
-                        "#review": "review",
-                        "#evidence": "evidence_reference",
-                    },
-                    "ExpressionAttributeValues": registry._encode(
-                        {
-                            ":approved": "APPROVED",
-                            ":revision": verified["expected_revision"],
-                            ":fingerprint": verified[
-                                "request_fingerprint"
-                            ],
-                            ":evidence": verified[
-                                "approval_reference"
-                            ],
-                        }
-                    ),
-                }
-            }
+            human_approval_check(
+                registry=registry,
+                request_key=verified["request_key"],
+                request_fingerprint=verified["request_fingerprint"],
+                revision=verified["expected_revision"],
+                evidence_reference=verified["approval_reference"],
+            )
         ]
 
         if existing is None:

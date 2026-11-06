@@ -1,6 +1,7 @@
 import copy
 
 from botocore.exceptions import ClientError
+from ingestion_registry.contract_authorisation import human_approval_check
 
 from ingestion_registry.contract_registration import (
     ContractRegistrationBlocked,
@@ -66,38 +67,13 @@ class ContractRegistrationCompletion:
             )
 
         actions = [
-            {
-                "ConditionCheck": {
-                    "TableName": self.registry.table_name,
-                    "Key": self.registry._encode(
-                        {"pk": current["pk"], "sk": "META"}
-                    ),
-                    "ConditionExpression": (
-                        "#status = :approved "
-                        "AND #revision = :revision "
-                        "AND request_fingerprint = :fingerprint "
-                        "AND #review.#evidence = :evidence"
-                    ),
-                    "ExpressionAttributeNames": {
-                        "#status": "status",
-                        "#revision": "revision",
-                        "#review": "review",
-                        "#evidence": "evidence_reference",
-                    },
-                    "ExpressionAttributeValues": self.registry._encode(
-                        {
-                            ":approved": "APPROVED",
-                            ":revision": int(
-                                current["approval_revision"]
-                            ),
-                            ":fingerprint": current[
-                                "request_fingerprint"
-                            ],
-                            ":evidence": current["approval_reference"],
-                        }
-                    ),
-                }
-            },
+            human_approval_check(
+                registry=self.registry,
+                request_key=current["pk"],
+                request_fingerprint=current["request_fingerprint"],
+                revision=current["approval_revision"],
+                evidence_reference=current["approval_reference"],
+            ),
             {
                 "ConditionCheck": {
                     "TableName": self.registry.table_name,

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 
 from ingestion_registry.identity import TableIdentity
+from ingestion_registry.contract_authorisation import human_approval_check
 
 
 class ContractActivationConflict(ValueError):
@@ -79,36 +80,13 @@ class ContractActivation:
         )
 
         guards = [
-            {
-                "ConditionCheck": {
-                    "TableName": self.registry.table_name,
-                    "Key": self.registry._encode(
-                        {"pk": request_pk, "sk": "META"}
-                    ),
-                    "ConditionExpression": (
-                        "#status = :approved "
-                        "AND #revision = :revision "
-                        "AND request_fingerprint = :fingerprint "
-                        "AND #review.#evidence = :evidence"
-                    ),
-                    "ExpressionAttributeNames": {
-                        "#status": "status",
-                        "#revision": "revision",
-                        "#review": "review",
-                        "#evidence": "evidence_reference",
-                    },
-                    "ExpressionAttributeValues": self.registry._encode(
-                        {
-                            ":approved": "APPROVED",
-                            ":revision": int(request["revision"]),
-                            ":fingerprint": request[
-                                "request_fingerprint"
-                            ],
-                            ":evidence": result["approval_reference"],
-                        }
-                    ),
-                }
-            },
+            human_approval_check(
+                registry=self.registry,
+                request_key=request_pk,
+                request_fingerprint=request["request_fingerprint"],
+                revision=request["revision"],
+                evidence_reference=result["approval_reference"],
+            ),
             {
                 "ConditionCheck": {
                     "TableName": self.registry.table_name,
