@@ -3,6 +3,11 @@ from dataclasses import asdict
 from ingestion_registry.references import S3ObjectReference
 
 from ingestion_registry.contract_policy import ContractPolicy
+from botocore.exceptions import ClientError
+
+from ingestion_registry.contract_authorisation import (
+    policy_acceptance_check,
+)
 
 
 class ContractPolicyAuthorisationBlocked(ValueError):
@@ -140,3 +145,172 @@ class ContractPolicyAuthorisation:
             "decision": copy.deepcopy(decision),
             "evidence_reference": asdict(evidence_reference),
         }
+
+    def authorise_registration(
+        self,
+        *,
+        table,
+        request_id: str,
+        contract_version: str,
+    ) -> dict:
+        verified = self.verify(
+            table=table,
+            request_id=request_id,
+            contract_version=contract_version,
+        )
+
+        record = {
+            "pk": verified["request_key"],
+            "sk": "REGISTRATION_AUTHORIZATION",
+            "record_type": "CONTRACT_REGISTRATION_AUTHORIZATION",
+            "authorisation_kind": "POLICY",
+            "request_id": verified["request_id"],
+            "request_fingerprint": verified["request_fingerprint"],
+            "table_identity": copy.deepcopy(
+                verified["table_identity"]
+            ),
+            "contract_version": contract_version,
+            "authorisation_revision": verified["expected_revision"],
+            "authorisation_evidence_reference": copy.deepcopy(
+                verified["evidence_reference"]
+            ),
+            "assessment": copy.deepcopy(verified["assessment"]),
+            "policy": copy.deepcopy(verified["policy"]),
+            "decision": copy.deepcopy(verified["decision"]),
+        }
+
+        for _ in range(3):
+            existing = self.registry._read(
+                record["pk"],
+                record["sk"],
+            )
+
+            if existing is not None and existing != record:
+                raise ContractPolicyAuthorisationBlocked(
+                    "Registration authorisation already exists "
+                    "with different evidence or authorisation type"
+                )
+
+            actions = [
+                policy_acceptance_check(
+                    registry=self.registry,
+                    verified=verified,
+                )
+            ]
+
+            if existing is None:
+                actions.append(self.registry._put_new(record))
+            else:
+                actions.append(
+                    {
+                        "ConditionCheck": {
+                            "TableName": self.registry.table_name,
+                            "Key": self.registry._encode(
+                                {
+                                    "pk": record["pk"],
+                                    "sk": record["sk"],
+                                }
+                            ),
+                            "ConditionExpression": (
+                                "authorisation_kind = :kind "
+                                "AND request_fingerprint = :fingerprint "
+                                "AND authorisation_revision = :revision "
+                                "AND authorisation_evidence_reference "
+                                "= :evidence "
+                                "AND assessment = :assessment "
+                                "AND #policy = :policy "
+                                "AND #decision = :decision "
+                                "AND contract_version = :version "
+                                "AND table_identity = :table "
+                                "AND request_id = :request "
+                                "AND record_type = :record_type"
+                            ),
+                            "ExpressionAttributeNames": {
+                                "#policy": "policy",
+                                "#decision": "decision",
+                            },
+                            "ExpressionAttributeValues": (
+                                self.registry._encode(
+                                    {
+                                        ":kind": "POLICY",
+                                        ":fingerprint": record[
+                                            "request_fingerprint"
+                                        ],
+                                        ":revision": record[
+                                            "authorisation_revision"
+                                        ],
+                                        ":evidence": record[
+                                            "authorisation_evidence_reference"
+                                        ],
+                                        ":assessment": record["assessment"],
+                                        ":policy": record["policy"],
+                                        ":decision": record["decision"],
+                                        ":version": contract_version,
+                                        ":table": record["table_identity"],
+                                        ":request": request_id,
+                                        ":record_type": record["record_type"],
+                                    }
+                                )
+                            ),
+                        }
+                    }
+                )
+
+            try:
+                self.registry.client.transact_write_items(
+                    TransactItems=actions,
+                )
+            except ClientError as error:
+                if (
+                    error.response["Error"]["Code"]
+                    != "TransactionCanceledException"
+                ):
+                    raise
+
+                reasons = error.response.get(
+                    "CancellationReasons",
+                    [],
+                )
+
+                if (
+                    reasons
+                    and reasons[0].get("Code")
+                    == "ConditionalCheckFailed"
+                ):
+                    raise ContractPolicyAuthorisationBlocked(
+                        "Policy decision changed before registration "
+                        "authorisation was recorded"
+                    ) from error
+
+                codes = {
+                    reason.get("Code")
+                    for reason in reasons
+                }
+
+                if not codes or not codes <= {
+                    None,
+                    "None",
+                    "ConditionalCheckFailed",
+                    "TransactionConflict",
+                }:
+                    raise
+
+                latest = self.verify(
+                    table=table,
+                    request_id=request_id,
+                    contract_version=contract_version,
+                )
+
+                if latest != verified:
+                    raise ContractPolicyAuthorisationBlocked(
+                        "Policy authorisation changed during registration"
+                    ) from error
+
+                continue
+
+            return copy.deepcopy(record)
+
+        raise ContractPolicyAuthorisationBlocked(
+            "Registration authorisation encountered concurrent changes; "
+            "retry the same request"
+        )
