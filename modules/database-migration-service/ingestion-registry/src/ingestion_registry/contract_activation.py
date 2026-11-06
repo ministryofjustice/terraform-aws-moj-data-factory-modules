@@ -5,7 +5,10 @@ from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 
 from ingestion_registry.identity import TableIdentity
-from ingestion_registry.contract_authorisation import human_approval_check
+from ingestion_registry.contract_authorisation import (
+    human_approval_check,
+    policy_acceptance_check,
+)
 
 
 class ContractActivationConflict(ValueError):
@@ -49,22 +52,41 @@ class ContractActivation:
             request_id=request_id,
         )
 
-        if (
-            request is None
-            or request["pk"] != result["request_key"]
-            or request["status"] != "APPROVED"
-            or request["request_fingerprint"]
-            != result["request_fingerprint"]
-            or int(request["revision"])
-            != result["approval_revision"]
-            or request["review"]["evidence_reference"]
-            != result["approval_reference"]
-            or request["assessment"]["candidate_reference"]
-            != result["candidate_reference"]
-        ):
-            raise ContractActivationConflict(
-                "Registration does not match the current approved request"
+        if "authorisation" in result:
+            guards = self._policy_guards(
+                table=table,
+                request_id=request_id,
+                contract_version=contract_version,
+                request=request,
+                result=result,
             )
+        else:
+            if (
+                request is None
+                or request["pk"] != result["request_key"]
+                or request["status"] != "APPROVED"
+                or request["request_fingerprint"]
+                != result["request_fingerprint"]
+                or int(request["revision"])
+                != result["approval_revision"]
+                or request["review"]["evidence_reference"]
+                != result["approval_reference"]
+                or request["assessment"]["candidate_reference"]
+                != result["candidate_reference"]
+            ):
+                raise ContractActivationConflict(
+                    "Registration does not match the current approved request"
+                )
+
+            guards = [
+                human_approval_check(
+                    registry=self.registry,
+                    request_key=request["pk"],
+                    request_fingerprint=request["request_fingerprint"],
+                    revision=request["revision"],
+                    evidence_reference=result["approval_reference"],
+                )
+            ]
 
         registered = result["registered_contract"]
 
@@ -79,14 +101,7 @@ class ContractActivation:
             "ACTIVATION",
         )
 
-        guards = [
-            human_approval_check(
-                registry=self.registry,
-                request_key=request_pk,
-                request_fingerprint=request["request_fingerprint"],
-                revision=request["revision"],
-                evidence_reference=result["approval_reference"],
-            ),
+        guards.append(
             {
                 "ConditionCheck": {
                     "TableName": self.registry.table_name,
@@ -94,13 +109,15 @@ class ContractActivation:
                         {"pk": request_pk, "sk": "REGISTRATION"}
                     ),
                     "ConditionExpression": "#result = :result",
-                    "ExpressionAttributeNames": {"#result": "result"},
+                    "ExpressionAttributeNames": {
+                        "#result": "result",
+                    },
                     "ExpressionAttributeValues": self.registry._encode(
                         {":result": result}
                     ),
                 }
-            },
-        ]
+            }
+        )
 
         if previous_activation is not None:
             if (
@@ -112,8 +129,6 @@ class ContractActivation:
                     "A different activation is already recorded"
                 )
 
-            # Do not rewrite CONTRACT_CURRENT on retry: another approved
-            # contract may have become current after this activation.
             guards.append(
                 {
                     "ConditionCheck": {
@@ -166,11 +181,17 @@ class ContractActivation:
             "request_key": request_pk,
             "request_fingerprint": request["request_fingerprint"],
             "registered_contract": copy.deepcopy(registered),
-            "approval_reference": copy.deepcopy(
-                result["approval_reference"]
-            ),
             "activated_at": now,
         }
+
+        if "authorisation" in result:
+            selection["authorisation"] = copy.deepcopy(
+                result["authorisation"]
+            )
+        else:
+            selection["approval_reference"] = copy.deepcopy(
+                result["approval_reference"]
+            )
         activation = {
             "pk": request_pk,
             "sk": "ACTIVATION",
@@ -243,3 +264,99 @@ class ContractActivation:
                 ) from error
 
             raise
+
+    def _policy_guards(
+        self,
+        *,
+        table,
+        request_id,
+        contract_version,
+        request,
+        result,
+    ):
+        policy = self.completion.policy_authorisation
+
+        if policy is None:
+            raise ContractActivationConflict(
+                "Policy activation is not configured"
+            )
+
+        receipt = policy.authorise_registration(
+            table=table,
+            request_id=request_id,
+            contract_version=contract_version,
+        )
+
+        verified = policy.verify(
+            table=table,
+            request_id=request_id,
+            contract_version=contract_version,
+        )
+
+        expected_authorisation = {
+            "kind": "POLICY",
+            "request_key": verified["request_key"],
+            "request_fingerprint": verified["request_fingerprint"],
+            "revision": verified["expected_revision"],
+            "evidence_reference": verified["evidence_reference"],
+            "candidate_reference": verified["assessment"][
+                "candidate_reference"
+            ],
+            "policy": verified["policy"],
+            "contract_version": contract_version,
+        }
+
+        expected_receipt = {
+            "pk": verified["request_key"],
+            "sk": "REGISTRATION_AUTHORIZATION",
+            "record_type": "CONTRACT_REGISTRATION_AUTHORIZATION",
+            "authorisation_kind": "POLICY",
+            "request_id": verified["request_id"],
+            "request_fingerprint": verified["request_fingerprint"],
+            "table_identity": verified["table_identity"],
+            "contract_version": contract_version,
+            "authorisation_revision": verified["expected_revision"],
+            "authorisation_evidence_reference": verified[
+                "evidence_reference"
+            ],
+            "assessment": verified["assessment"],
+            "policy": verified["policy"],
+            "decision": verified["decision"],
+        }
+
+        if (
+            request is None
+            or request.get("status") != "POLICY_ACCEPTED"
+            or request.get("table_identity") != asdict(table)
+            or request.get("request_id") != request_id
+            or request.get("pk") != verified["request_key"]
+            or request.get("request_fingerprint")
+            != verified["request_fingerprint"]
+            or request.get("revision") != verified["expected_revision"]
+            or request.get("assessment") != verified["assessment"]
+            or request.get("policy") != verified["policy"]
+            or request.get("decision") != verified["decision"]
+            or receipt != expected_receipt
+            or result.get("status") != "REGISTRATION_CONFIRMED"
+            or result.get("request_key") != verified["request_key"]
+            or result.get("request_fingerprint")
+            != verified["request_fingerprint"]
+            or result.get("candidate_reference")
+            != verified["assessment"]["candidate_reference"]
+            or result.get("authorisation") != expected_authorisation
+            or "approval_reference" in result
+            or "approval_revision" in result
+        ):
+            raise ContractActivationConflict(
+                "Registration does not match the current policy authorisation"
+            )
+
+        return [
+            policy_acceptance_check(
+                registry=self.registry,
+                verified=verified,
+            ),
+            self.completion._policy_receipt_check(
+                expected_receipt
+            ),
+        ]
