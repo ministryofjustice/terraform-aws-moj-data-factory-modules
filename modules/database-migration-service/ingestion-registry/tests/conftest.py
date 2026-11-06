@@ -174,3 +174,10 @@ def task_group_setup(binding_setup):
     )
 
     return registry, admitted, clock, groups
+
+# Shared contract integration fixtures; resources are created only
+# when a test requests the fixture.
+from contract_integration_support import (
+    promotion_integration as promotion_integration,
+    registration_integration as registration_integration,
+)

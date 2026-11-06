@@ -7,6 +7,8 @@ on:
     paths:
       - ".github/workflows/ingestion-registry.yml"
       - "modules/database-migration-service/ingestion-registry/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-generation/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-registration/**"
 
   push:
     branches:
@@ -14,6 +16,8 @@ on:
     paths:
       - ".github/workflows/ingestion-registry.yml"
       - "modules/database-migration-service/ingestion-registry/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-generation/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-registration/**"
 
   workflow_dispatch:
 
@@ -82,8 +86,12 @@ jobs:
 
       - name: Test installed wheel outside the source tree
         run: |
+          set -euo pipefail
+
           wheel_venv="$RUNNER_TEMP/ingestion-registry-wheel"
-          wheel_tests="$RUNNER_TEMP/ingestion-registry-wheel-tests"
+          wheel_root="$RUNNER_TEMP/ingestion-registry-wheel-tests"
+          wheel_tests="$wheel_root/modules/database-migration-service/ingestion-registry"
+          wheel_runtime="$wheel_root/modules/database-migration-service/modules/data-contract-management/runtime"
 
           python -m venv "$wheel_venv"
 
@@ -97,9 +105,20 @@ jobs:
 
           "$wheel_venv/bin/python" -m pip check
 
-          mkdir -p "$wheel_tests"
+          mkdir -p "$wheel_tests" "$wheel_runtime"
+
           cp -R tests "$wheel_tests/tests"
-          printf '[pytest]\n' > "$wheel_tests/pytest.ini"
+
+          cp -R \
+            ../modules/data-contract-management/runtime/schema-generation \
+            "$wheel_runtime/"
+
+          cp -R \
+            ../modules/data-contract-management/runtime/schema-registration \
+            "$wheel_runtime/"
+
+          printf '[pytest]\npythonpath = tests\n' \
+            > "$wheel_tests/pytest.ini"
 
           cd "$wheel_tests"
 
