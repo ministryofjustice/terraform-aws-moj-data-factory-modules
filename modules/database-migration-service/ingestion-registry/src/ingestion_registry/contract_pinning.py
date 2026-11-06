@@ -1,4 +1,10 @@
-from ingestion_registry.contracts import RegisteredContract
+from ingestion_registry.contract_authorisation import (
+    policy_acceptance_check,
+)
+from ingestion_registry.contracts import (
+    PolicyContractAuthorisation,
+    RegisteredContract,
+)
 from ingestion_registry.identity import TableIdentity
 from ingestion_registry.references import S3ObjectReference
 
@@ -59,6 +65,41 @@ class CurrentContractPinning:
                     sha256=reference["contract_object_sha256"],
                 ),
             )
+            if reference.get("authorisation_kind") == "POLICY":
+                authorisation = PolicyContractAuthorisation(
+                    evidence_reference=S3ObjectReference(
+                        bucket_name=reference[
+                            "authorisation_bucket_name"
+                        ],
+                        object_key=reference[
+                            "authorisation_object_key"
+                        ],
+                        version_id=reference[
+                            "authorisation_object_version_id"
+                        ],
+                        sha256=reference[
+                            "authorisation_object_sha256"
+                        ],
+                    ),
+                    policy_revision=reference["policy_revision"],
+                    request_key=reference[
+                        "authorisation_request_key"
+                    ],
+                    request_fingerprint=reference[
+                        "authorisation_request_fingerprint"
+                    ],
+                    request_revision=int(
+                        reference["authorisation_request_revision"]
+                    ),
+                )
+
+                return self.contracts.pin(
+                    claim,
+                    contract=contract,
+                    policy_authorisation=authorisation,
+                    update_id=existing["update_id"],
+                    expected_revision=int(existing["revision"]) - 1,
+                )
             approval = S3ObjectReference(
                 bucket_name=reference["approval_bucket_name"],
                 object_key=reference["approval_object_key"],
@@ -91,6 +132,15 @@ class CurrentContractPinning:
                 **registered["object_reference"]
             ),
         )
+        if "authorisation" in selection:
+            return self._pin_policy(
+                claim=claim,
+                table=table,
+                selection=selection,
+                contract=contract,
+                update_id=update_id,
+                expected_revision=expected_revision,
+            )
         approval = S3ObjectReference(
             **selection["approval_reference"]
         )
@@ -163,6 +213,164 @@ class CurrentContractPinning:
             claim,
             contract=contract,
             approval_reference=approval,
+            update_id=update_id,
+            expected_revision=expected_revision,
+            condition_checks=checks,
+        )
+
+    def _pin_policy(
+        self,
+        *,
+        claim,
+        table,
+        selection,
+        contract,
+        update_id,
+        expected_revision,
+    ):
+        policy = self.lookup.policy_authorisation
+
+        if policy is None:
+            raise ContractSelectionUnavailable(
+                "Policy contract pinning is not configured"
+            )
+
+        request = self.registry._read(
+            selection["request_key"],
+            "META",
+        )
+
+        if request is None:
+            raise ContractSelectionUnavailable(
+                "Policy selection has no lifecycle request"
+            )
+
+        verified = policy.verify(
+            table=table,
+            request_id=request["request_id"],
+            contract_version=contract.contract_version,
+        )
+
+        expected_authorisation = {
+            "kind": "POLICY",
+            "request_key": verified["request_key"],
+            "request_fingerprint": verified["request_fingerprint"],
+            "revision": verified["expected_revision"],
+            "evidence_reference": verified["evidence_reference"],
+            "candidate_reference": verified["assessment"][
+                "candidate_reference"
+            ],
+            "policy": verified["policy"],
+            "contract_version": contract.contract_version,
+        }
+
+        if (
+            selection["authorisation"] != expected_authorisation
+            or selection["request_key"] != verified["request_key"]
+            or selection["request_fingerprint"]
+            != verified["request_fingerprint"]
+        ):
+            raise ContractSelectionUnavailable(
+                "Current selection does not match policy authorisation"
+            )
+
+        authorisation = PolicyContractAuthorisation(
+            evidence_reference=S3ObjectReference(
+                **verified["evidence_reference"]
+            ),
+            policy_revision=verified["policy"]["revision"],
+            request_key=verified["request_key"],
+            request_fingerprint=verified["request_fingerprint"],
+            request_revision=verified["expected_revision"],
+        )
+
+        checks = [
+            {
+                "ConditionCheck": {
+                    "TableName": self.registry.table_name,
+                    "Key": self.registry._encode(
+                        {
+                            "pk": table.partition_key,
+                            "sk": "CONTRACT_CURRENT",
+                        }
+                    ),
+                    "ConditionExpression": (
+                        "#revision = :revision "
+                        "AND request_key = :request "
+                        "AND request_fingerprint = :fingerprint "
+                        "AND registered_contract = :contract "
+                        "AND #authorisation = :authorisation "
+                        "AND table_identity = :table"
+                    ),
+                    "ExpressionAttributeNames": {
+                        "#revision": "revision",
+                        "#authorisation": "authorisation",
+                    },
+                    "ExpressionAttributeValues": self.registry._encode(
+                        {
+                            ":revision": int(selection["revision"]),
+                            ":request": verified["request_key"],
+                            ":fingerprint": verified[
+                                "request_fingerprint"
+                            ],
+                            ":contract": selection[
+                                "registered_contract"
+                            ],
+                            ":authorisation": expected_authorisation,
+                            ":table": verified["table_identity"],
+                        }
+                    ),
+                }
+            },
+            policy_acceptance_check(
+                registry=self.registry,
+                verified=verified,
+            ),
+            {
+                "ConditionCheck": {
+                    "TableName": self.registry.table_name,
+                    "Key": self.registry._encode(
+                        {
+                            "pk": verified["request_key"],
+                            "sk": "REGISTRATION_AUTHORIZATION",
+                        }
+                    ),
+                    "ConditionExpression": (
+                        "authorisation_kind = :kind "
+                        "AND request_fingerprint = :fingerprint "
+                        "AND authorisation_revision = :revision "
+                        "AND authorisation_evidence_reference = :evidence "
+                        "AND contract_version = :version "
+                        "AND assessment = :assessment "
+                        "AND #policy = :policy "
+                        "AND #decision = :decision"
+                    ),
+                    "ExpressionAttributeNames": {
+                        "#policy": "policy",
+                        "#decision": "decision",
+                    },
+                    "ExpressionAttributeValues": self.registry._encode(
+                        {
+                            ":kind": "POLICY",
+                            ":fingerprint": verified[
+                                "request_fingerprint"
+                            ],
+                            ":revision": verified["expected_revision"],
+                            ":evidence": verified["evidence_reference"],
+                            ":version": contract.contract_version,
+                            ":assessment": verified["assessment"],
+                            ":policy": verified["policy"],
+                            ":decision": verified["decision"],
+                        }
+                    ),
+                }
+            },
+        ]
+
+        return self.contracts.pin(
+            claim,
+            contract=contract,
+            policy_authorisation=authorisation,
             update_id=update_id,
             expected_revision=expected_revision,
             condition_checks=checks,
