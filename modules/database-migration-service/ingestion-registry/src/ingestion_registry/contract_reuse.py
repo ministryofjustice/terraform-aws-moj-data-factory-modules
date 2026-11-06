@@ -4,7 +4,10 @@ from dataclasses import asdict
 from botocore.exceptions import ClientError
 
 from ingestion_registry.references import S3ObjectReference
-
+from ingestion_registry.contract_authorisation import (
+    human_approval_check,
+    policy_acceptance_check,
+)
 
 class ContractReuseBlocked(ValueError):
     """The assessed baseline cannot safely be selected for reuse."""
@@ -135,81 +138,16 @@ class ContractReuse:
 
         try:
             self.registry.client.transact_write_items(
-                TransactItems=[
-                    {
-                        "ConditionCheck": {
-                            "TableName": self.registry.table_name,
-                            "Key": self.registry._encode(
-                                {
-                                    "pk": table.partition_key,
-                                    "sk": "CONTRACT_CURRENT",
-                                }
-                            ),
-                            "ConditionExpression": (
-                                "#revision = :revision "
-                                "AND registered_contract = :contract "
-                                "AND approval_reference = :approval "
-                                "AND request_key = :request"
-                            ),
-                            "ExpressionAttributeNames": {
-                                "#revision": "revision",
-                            },
-                            "ExpressionAttributeValues": (
-                                self.registry._encode(
-                                    {
-                                        ":revision": selection["revision"],
-                                        ":contract": registered,
-                                        ":approval": selection[
-                                            "approval_reference"
-                                        ],
-                                        ":request": selection["request_key"],
-                                    }
-                                )
-                            ),
-                        }
-                    },
-                    {
-                        "ConditionCheck": {
-                            "TableName": self.registry.table_name,
-                            "Key": self.registry._encode(
-                                {
-                                    "pk": selection["request_key"],
-                                    "sk": "META",
-                                }
-                            ),
-                            "ConditionExpression": (
-                                "#status = :approved "
-                                "AND #revision = :revision "
-                                "AND request_fingerprint = :fingerprint "
-                                "AND #review.#evidence = :approval"
-                            ),
-                            "ExpressionAttributeNames": {
-                                "#status": "status",
-                                "#revision": "revision",
-                                "#review": "review",
-                                "#evidence": "evidence_reference",
-                            },
-                            "ExpressionAttributeValues": (
-                                self.registry._encode(
-                                    {
-                                        ":approved": "APPROVED",
-                                        ":revision": current[
-                                            "approval_revision"
-                                        ],
-                                        ":fingerprint": selection[
-                                            "request_fingerprint"
-                                        ],
-                                        ":approval": selection[
-                                            "approval_reference"
-                                        ],
-                                    }
-                                )
-                            ),
-                        }
-                    },
-                    self._request_write(request, updated),
-                    self.registry._put_new(record),
-                ]
+                TransactItems=(
+                    self._reuse_guards(
+                        table=table,
+                        current=current,
+                    )
+                    + [
+                        self._request_write(request, updated),
+                        self.registry._put_new(record),
+                    ]
+                )
             )
         except ClientError as error:
             if (
@@ -254,6 +192,160 @@ class ContractReuse:
             ) from error
 
         return copy.deepcopy(result)
+
+    def _reuse_guards(self, *, table, current):
+        selection = current["selection"]
+        registered = selection["registered_contract"]
+
+        if "authorisation" in selection:
+            evidence_field = "authorisation"
+        else:
+            evidence_field = "approval_reference"
+
+        selection_check = {
+            "ConditionCheck": {
+                "TableName": self.registry.table_name,
+                "Key": self.registry._encode(
+                    {
+                        "pk": table.partition_key,
+                        "sk": "CONTRACT_CURRENT",
+                    }
+                ),
+                "ConditionExpression": (
+                    "#revision = :revision "
+                    "AND registered_contract = :contract "
+                    "AND #evidence = :evidence "
+                    "AND request_key = :request "
+                    "AND request_fingerprint = :fingerprint "
+                    "AND table_identity = :table"
+                ),
+                "ExpressionAttributeNames": {
+                    "#revision": "revision",
+                    "#evidence": evidence_field,
+                },
+                "ExpressionAttributeValues": self.registry._encode(
+                    {
+                        ":revision": selection["revision"],
+                        ":contract": registered,
+                        ":evidence": selection[evidence_field],
+                        ":request": selection["request_key"],
+                        ":fingerprint": selection[
+                            "request_fingerprint"
+                        ],
+                        ":table": asdict(table),
+                    }
+                ),
+            }
+        }
+
+        if evidence_field == "approval_reference":
+            return [
+                selection_check,
+                human_approval_check(
+                    registry=self.registry,
+                    request_key=selection["request_key"],
+                    request_fingerprint=selection[
+                        "request_fingerprint"
+                    ],
+                    revision=current["approval_revision"],
+                    evidence_reference=selection[
+                        "approval_reference"
+                    ],
+                ),
+            ]
+
+        policy = self.current_lookup.policy_authorisation
+
+        if policy is None:
+            raise ContractReuseBlocked(
+                "Policy baseline reuse is not configured"
+            )
+
+        source_request = self.registry._read(
+            selection["request_key"],
+            "META",
+        )
+
+        if source_request is None:
+            raise ContractReuseBlocked(
+                "Policy baseline has no lifecycle request"
+            )
+
+        verified = policy.verify(
+            table=table,
+            request_id=source_request["request_id"],
+            contract_version=registered["contract_version"],
+        )
+
+        expected_authorisation = {
+            "kind": "POLICY",
+            "request_key": verified["request_key"],
+            "request_fingerprint": verified["request_fingerprint"],
+            "revision": verified["expected_revision"],
+            "evidence_reference": verified["evidence_reference"],
+            "candidate_reference": verified["assessment"][
+                "candidate_reference"
+            ],
+            "policy": verified["policy"],
+            "contract_version": registered["contract_version"],
+        }
+
+        if (
+            selection["authorisation"] != expected_authorisation
+            or selection["request_key"] != verified["request_key"]
+            or selection["request_fingerprint"]
+            != verified["request_fingerprint"]
+        ):
+            raise ContractReuseBlocked(
+                "Baseline does not match verified policy authorisation"
+            )
+
+        receipt_check = {
+            "ConditionCheck": {
+                "TableName": self.registry.table_name,
+                "Key": self.registry._encode(
+                    {
+                        "pk": verified["request_key"],
+                        "sk": "REGISTRATION_AUTHORIZATION",
+                    }
+                ),
+                "ConditionExpression": (
+                    "authorisation_kind = :kind "
+                    "AND request_fingerprint = :fingerprint "
+                    "AND authorisation_revision = :revision "
+                    "AND authorisation_evidence_reference = :evidence "
+                    "AND contract_version = :version "
+                    "AND assessment = :assessment "
+                    "AND #policy = :policy "
+                    "AND #decision = :decision"
+                ),
+                "ExpressionAttributeNames": {
+                    "#policy": "policy",
+                    "#decision": "decision",
+                },
+                "ExpressionAttributeValues": self.registry._encode(
+                    {
+                        ":kind": "POLICY",
+                        ":fingerprint": verified["request_fingerprint"],
+                        ":revision": verified["expected_revision"],
+                        ":evidence": verified["evidence_reference"],
+                        ":version": registered["contract_version"],
+                        ":assessment": verified["assessment"],
+                        ":policy": verified["policy"],
+                        ":decision": verified["decision"],
+                    }
+                ),
+            }
+        }
+
+        return [
+            selection_check,
+            policy_acceptance_check(
+                registry=self.registry,
+                verified=verified,
+            ),
+            receipt_check,
+        ]
 
     def _replay(
         self,
