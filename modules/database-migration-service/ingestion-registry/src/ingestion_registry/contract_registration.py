@@ -2,6 +2,12 @@ import json
 import re
 import urllib.parse
 from dataclasses import asdict
+import copy
+
+from ingestion_registry.contract_registration_authorisation import (
+    authorisation_fields,
+    authorise_registration,
+)
 
 from ingestion_registry.contract_verification import (
     ContractNotRegistered,
@@ -45,6 +51,7 @@ class ContractRegistrar:
         verifier,
         lambda_client,
         registration_function_arn: str,
+        policy_authorisation=None,
     ):
         if (
             not isinstance(registration_function_arn, str)
@@ -61,6 +68,7 @@ class ContractRegistrar:
 
         self.promoter = promoter
         self.approval_gate = approval_gate
+        self.policy_authorisation = policy_authorisation
         self.verifier = verifier
         self.lambda_client = lambda_client
         self.registration_function_arn = registration_function_arn
@@ -72,24 +80,35 @@ class ContractRegistrar:
         request_id,
         promoted,
     ):
-        current = self.approval_gate.authorise_registration(
+        current = authorise_registration(
+            approval_gate=self.approval_gate,
+            policy_authorisation=self.policy_authorisation,
             table=table,
             request_id=request_id,
+            contract_version=promoted["contract_version"],
         )
 
-        if (
-            current["pk"] != promoted["request_key"]
-            or current["request_fingerprint"]
-            != promoted["request_fingerprint"]
-            or int(current["approval_revision"])
-            != promoted["approval_revision"]
-            or current["approval_reference"]
-            != promoted["approval_reference"]
-            or current["assessment"]["candidate_reference"]
-            != promoted["candidate_reference"]
+        expected = authorisation_fields(current)
+
+        if any(
+            promoted.get(field) != value
+            for field, value in expected.items()
         ):
             raise ContractRegistrationBlocked(
-                "Promotion no longer matches the current approval"
+                "Promotion no longer matches the current authorisation"
+            )
+
+        if current["kind"] == "HUMAN":
+            if "authorisation" in promoted:
+                raise ContractRegistrationBlocked(
+                    "Promotion has a conflicting authorisation type"
+                )
+        elif (
+            "approval_reference" in promoted
+            or "approval_revision" in promoted
+        ):
+            raise ContractRegistrationBlocked(
+                "Policy promotion must not contain human approval fields"
             )
 
     @staticmethod
@@ -238,12 +257,24 @@ class ContractRegistrar:
             promoted=promoted,
         )
 
-        return {
+        result = {
             "status": "REGISTRATION_CONFIRMED",
             "request_key": promoted["request_key"],
             "request_fingerprint": promoted["request_fingerprint"],
-            "approval_revision": promoted["approval_revision"],
-            "approval_reference": promoted["approval_reference"],
-            "candidate_reference": promoted["candidate_reference"],
+            "candidate_reference": copy.deepcopy(
+                promoted["candidate_reference"]
+            ),
             "registered_contract": asdict(contract),
         }
+
+        if "authorisation" in promoted:
+            result["authorisation"] = copy.deepcopy(
+                promoted["authorisation"]
+            )
+        else:
+            result["approval_revision"] = promoted["approval_revision"]
+            result["approval_reference"] = copy.deepcopy(
+                promoted["approval_reference"]
+            )
+
+        return result

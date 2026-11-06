@@ -201,7 +201,10 @@ def test_changed_approval_prevents_invocation(registration_setup):
         "approval_revision"
     ] = 3
 
-    with pytest.raises(ContractRegistrationBlocked, match="current approval"):
+    with pytest.raises(
+        ContractRegistrationBlocked,
+        match="current authorisation",
+    ):
         register(setup)
 
     setup["client"].invoke.assert_not_called()
@@ -220,7 +223,10 @@ def test_changed_approval_after_registration_blocks_progression(
         changed,
     ]
 
-    with pytest.raises(ContractRegistrationBlocked, match="current approval"):
+    with pytest.raises(
+        ContractRegistrationBlocked,
+        match="current authorisation",
+    ):
         register(setup)
 
     assert setup["payload"].closed

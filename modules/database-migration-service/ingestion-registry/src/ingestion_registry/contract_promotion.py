@@ -1,4 +1,3 @@
-import copy
 import hashlib
 import re
 from dataclasses import asdict
@@ -8,6 +7,10 @@ from botocore.exceptions import ClientError
 from ingestion_registry.contract_candidate import ContractCandidateReader
 from ingestion_registry.identity import TableIdentity
 from ingestion_registry.references import S3ObjectReference
+from ingestion_registry.contract_registration_authorisation import (
+    authorisation_fields,
+    authorise_registration,
+)
 
 
 class ContractPromotionConflict(ValueError):
@@ -24,6 +27,7 @@ class ContractPromoter:
         destination_bucket: str,
         bucket_owner_account_id: str,
         kms_key_arn: str,
+        policy_authorisation=None,
     ):
         if (
             not isinstance(destination_bucket, str)
@@ -58,6 +62,7 @@ class ContractPromoter:
             )
 
         self.approval_gate = approval_gate
+        self.policy_authorisation = policy_authorisation
         self.candidate_reader = candidate_reader
         self.s3 = s3_client
         self.destination_bucket = destination_bucket
@@ -80,13 +85,16 @@ class ContractPromoter:
         ):
             raise ValueError("contract_version must use v1, v2, etc.")
 
-        authorisation = self.approval_gate.authorise_registration(
+        authorisation = authorise_registration(
+            approval_gate=self.approval_gate,
+            policy_authorisation=self.policy_authorisation,
             table=table,
             request_id=request_id,
+            contract_version=contract_version,
         )
 
         candidate_reference = S3ObjectReference(
-            **authorisation["assessment"]["candidate_reference"]
+            **authorisation["candidate_reference"]
         )
         candidate = self.candidate_reader.read(
             table=table,
@@ -94,9 +102,12 @@ class ContractPromoter:
             reference=candidate_reference,
         )
 
-        current = self.approval_gate.authorise_registration(
+        current = authorise_registration(
+            approval_gate=self.approval_gate,
+            policy_authorisation=self.policy_authorisation,
             table=table,
             request_id=request_id,
+            contract_version=contract_version,
         )
 
         if current != authorisation:
@@ -195,17 +206,7 @@ class ContractPromoter:
 
         return {
             "status": "PROMOTED",
-            "request_key": authorisation["pk"],
-            "request_fingerprint": authorisation[
-                "request_fingerprint"
-            ],
-            "approval_revision": int(
-                authorisation["approval_revision"]
-            ),
-            "approval_reference": copy.deepcopy(
-                authorisation["approval_reference"]
-            ),
-            "candidate_reference": asdict(candidate.reference),
+            **authorisation_fields(authorisation),
             "contract_version": candidate.contract_version,
             "contract_fingerprint": candidate.contract_fingerprint,
             "object_reference": asdict(final_reference),
