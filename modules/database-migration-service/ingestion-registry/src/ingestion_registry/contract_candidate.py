@@ -149,8 +149,6 @@ class ContractCandidateReader:
             "contract_version": contract_version,
         }
 
-        # This is the version-1 candidate storage key protocol.
-        # Keep it consistent with schema-generation/candidate_storage.py.
         request_identity = json.dumps(
             {
                 "candidate_request_version": 1,
@@ -178,8 +176,6 @@ class ContractCandidateReader:
                 ExpectedBucketOwner=self.bucket_owner_account_id,
             )
         except ClientError as error:
-            # Access failures and other AWS errors must propagate.
-            # They must never be interpreted as an absent candidate.
             if error.response.get("Error", {}).get("Code") == "NoSuchKey":
                 return None
             raise
@@ -223,8 +219,6 @@ class ContractCandidateReader:
             sha256=hashlib.sha256(raw).hexdigest(),
         )
 
-        # Discovery finds the current object. Verification then reads
-        # its exact immutable version and checks the selected identity.
         return self.read(
             table=table,
             contract_version=contract_version,

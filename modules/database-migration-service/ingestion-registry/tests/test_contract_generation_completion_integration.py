@@ -23,7 +23,11 @@ def generation_completion(generation_adapter):
         candidate_kms_key_arn=setup["kms_key"],
     )
 
-    return {**setup, "completion": completion}
+    return {
+        **setup,
+        "registration_completion": setup["completion"],
+        "completion": completion,
+    }
 
 
 def complete(setup):

@@ -20,6 +20,7 @@ class ContractOrchestration:
         activation,
         trusted_policy: ContractPolicy,
         preparation=None,
+        generated_assessment=None,
     ):
         if not isinstance(trusted_policy, ContractPolicy):
             raise ValueError("trusted_policy must be a ContractPolicy")
@@ -32,6 +33,25 @@ class ContractOrchestration:
         ):
             raise ValueError(
                 "Preparation and orchestration must use the same Registry"
+            )
+
+        if (
+            generated_assessment is not None
+            and generated_assessment.registry is not registry
+        ):
+            raise ValueError(
+                "Generated assessment and orchestration "
+                "must use the same Registry"
+            )
+
+        if (
+            preparation is not None
+            and generated_assessment is not None
+            and preparation.completion is not generated_assessment.completion
+        ):
+            raise ValueError(
+                "Preparation and assessment must use "
+                "the same generation completion service"
             )
 
         if any(
@@ -54,6 +74,8 @@ class ContractOrchestration:
         self.activation = activation
         self.trusted_policy = trusted_policy
         self.preparation = preparation
+        self.registry = registry
+        self.generated_assessment = generated_assessment
 
     def prepare(
         self,
@@ -84,6 +106,68 @@ class ContractOrchestration:
             table=table,
             action="RESOLVED",
             selection=resolved["selection"],
+        )
+
+    def complete_assessment(
+        self,
+        *,
+        table: TableIdentity,
+        reservation_key: str,
+        preparation_fingerprint: str,
+        evidence_reference: S3ObjectReference,
+    ) -> dict:
+        if self.generated_assessment is None:
+            raise ContractOrchestrationBlocked(
+                "Generated contract assessment is not configured"
+            )
+
+        if not isinstance(table, TableIdentity):
+            raise ValueError("table must be a TableIdentity")
+
+        if not isinstance(evidence_reference, S3ObjectReference):
+            raise ValueError(
+                "evidence_reference must be an S3ObjectReference"
+            )
+
+        reservation = self.generated_assessment.completion._reservation(
+            table,
+            reservation_key,
+            preparation_fingerprint,
+        )
+
+        generation = self.registry._read(
+            reservation_key,
+            "GENERATION",
+        )
+
+        if generation is None:
+            raise ContractOrchestrationBlocked(
+                "Generation completion must exist before assessment"
+            )
+
+        request = self.generated_assessment.submit(
+            table=table,
+            reservation_key=reservation_key,
+            request_fingerprint=preparation_fingerprint,
+            evidence_reference=evidence_reference,
+            policy=self.trusted_policy,
+        )
+
+        if (
+            request["request_id"] != reservation["request_id"]
+            or self.registry._read(reservation_key, "META") != reservation
+            or self.registry._read(reservation_key, "GENERATION")
+            != generation
+        ):
+            raise ContractOrchestrationBlocked(
+                "Generation context changed during assessment admission"
+            )
+
+        return self.advance(
+            table=table,
+            request_id=request["request_id"],
+            contract_version=reservation["contract_version"],
+            expected_request_fingerprint=request["request_fingerprint"],
         )
 
     def advance(

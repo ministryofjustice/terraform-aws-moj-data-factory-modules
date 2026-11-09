@@ -202,7 +202,6 @@ class IngestionContracts:
         }
 
         if policy_authorisation is None:
-            # Preserve the existing human-approved result exactly.
             reference.update(
                 {
                     "approval_bucket_name": approval_reference.bucket_name,
