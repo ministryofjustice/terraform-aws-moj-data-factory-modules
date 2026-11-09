@@ -6,6 +6,7 @@ from ingestion_config.component_bindings import (
 )
 from ingestion_config.contract_bindings import (
     resolve_contract_bindings,
+    resolve_contract_execution_bindings,
 )
 from ingestion_config.loader import ConfigurationError
 from ingestion_config.published_documents import (
@@ -41,9 +42,38 @@ def resolve_published_table(
     catalog_reference: DocumentReference | None = None,
     required_components: tuple[str, ...] = (),
     required_contract_capabilities: tuple[str, ...] = (),
+    contract_execution_targets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    if contract_execution_targets is not None:
+        expected_fields = {
+            "generation_function_arn",
+            "validation_function_arn",
+            "registration_function_arn",
+            "registry_table_name",
+            "registry_table_arn",
+        }
+
+        if (
+            not isinstance(contract_execution_targets, dict)
+            or set(contract_execution_targets) != expected_fields
+            or any(
+                not isinstance(value, str)
+                or not value
+                or value != value.strip()
+                for value in contract_execution_targets.values()
+            )
+        ):
+            raise ConfigurationError(
+                "Contract execution requires exactly the configured "
+                "generation, validation, registration and registry targets"
+            )
+
+        contract_execution_targets = dict(contract_execution_targets)
+
     requires_catalog = bool(
-        required_components or required_contract_capabilities
+        required_components
+        or required_contract_capabilities
+        or contract_execution_targets is not None
     )
 
     if requires_catalog and catalog_reference is None:
@@ -94,6 +124,13 @@ def resolve_published_table(
                 required_capabilities=list(
                     required_contract_capabilities
                 ),
+            )
+
+        if contract_execution_targets is not None:
+            contracts = resolve_contract_execution_bindings(
+                result,
+                catalog,
+                **contract_execution_targets,
             )
 
         result["component_bindings"] = components
