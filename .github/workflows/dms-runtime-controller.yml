@@ -15,6 +15,9 @@ on:
       - "modules/database-migration-service/modules/dms-source-ingestion/**"
       - "modules/database-migration-service/modules/dms-core/**"
       - "modules/database-migration-service/modules/dms-replication-capacity/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-generation/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-validation/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-registration/**"
 
   push:
     branches:
@@ -30,6 +33,9 @@ on:
       - "modules/database-migration-service/modules/dms-source-ingestion/**"
       - "modules/database-migration-service/modules/dms-core/**"
       - "modules/database-migration-service/modules/dms-replication-capacity/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-generation/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-validation/**"
+      - "modules/database-migration-service/modules/data-contract-management/runtime/schema-registration/**"
 
   workflow_dispatch:
 
@@ -102,8 +108,13 @@ jobs:
 
       - name: Test installed wheels outside the source tree
         run: |
+          set -euo pipefail
+
           wheel_venv="$RUNNER_TEMP/dms-runtime-wheel"
-          wheel_tests="$RUNNER_TEMP/dms-runtime-wheel-tests"
+          wheel_root="$RUNNER_TEMP/dms-runtime-wheel-tests"
+          wheel_service="$wheel_root/modules/database-migration-service"
+          wheel_tests="$wheel_service/runtime-controller"
+          wheel_runtime="$wheel_service/modules/data-contract-management/runtime"
 
           python -m venv "$wheel_venv"
 
@@ -117,9 +128,30 @@ jobs:
 
           "$wheel_venv/bin/python" -m pip check
 
-          mkdir -p "$wheel_tests"
+          mkdir -p \
+            "$wheel_tests" \
+            "$wheel_service/ingestion-registry" \
+            "$wheel_runtime"
+
           cp -R tests "$wheel_tests/tests"
           cp publish_artifact.py "$wheel_tests/publish_artifact.py"
+
+          cp -R \
+            ../ingestion-registry/tests \
+            "$wheel_service/ingestion-registry/tests"
+
+          cp -R \
+            ../modules/data-contract-management/runtime/schema-generation \
+            "$wheel_runtime/"
+
+          cp -R \
+            ../modules/data-contract-management/runtime/schema-validation \
+            "$wheel_runtime/"
+
+          cp -R \
+            ../modules/data-contract-management/runtime/schema-registration \
+            "$wheel_runtime/"
+
           printf '[pytest]\n' > "$wheel_tests/pytest.ini"
 
           cd "$wheel_tests"
