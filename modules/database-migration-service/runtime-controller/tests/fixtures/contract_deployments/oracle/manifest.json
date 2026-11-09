@@ -1,0 +1,32 @@
+{
+  "account_id": "111122223333",
+  "artifact_revision": "09a0df84fde00a1d2a2a85dc99caeba3a4b092ab983a230513cce03e2b06c9c3",
+  "configuration_revision": "ecd2b46543a36eae6db855f19a60a7594840233d1c9ea5c2222b5e018c76bec6",
+  "database_name": "DMSTEST",
+  "environment": "development",
+  "extraction_generation": "generation-one",
+  "manifest_version": 1,
+  "region": "eu-west-2",
+  "source": "sandbox-oracle",
+  "task_groups": {
+    "integration": {
+      "deployment_name": "df-sandbox-or-integr-b4a2506ec88388c5",
+      "landing": {
+        "bucket_name": "example-development-raw",
+        "prefix": "landing/development/sandbox-oracle/DMSTEST/integration/generation-one/"
+      },
+      "migration_type": "full-load-and-cdc",
+      "replication_instance_arn": "arn:aws:dms:eu-west-2:111122223333:rep:INSTANCE1",
+      "replication_task_arn": "arn:aws:dms:eu-west-2:111122223333:task:TASK1",
+      "replication_task_id": "df-sandbox-or-integr-b4a2506ec88388c5-task",
+      "source_endpoint_arn": "arn:aws:dms:eu-west-2:111122223333:endpoint:SOURCE1",
+      "tables": [
+        {
+          "schema_name": "DMS_USER",
+          "table_name": "DMS_INTEGRATION_TEST"
+        }
+      ],
+      "target_endpoint_arn": "arn:aws:dms:eu-west-2:111122223333:endpoint:TARGET1"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "catalog_version": 1,
+  "environment": "development",
+  "account_id": "111122223333",
+  "region": "eu-west-2",
+  "configuration_revision": "2a9273e5d91eb3ea849e4818010a5480d9243e577938d0077eeadaaf8507fb8e",
+  "artifact_revision": "876761e4eecb45b1e5955c3bdeea9a1adaf3e06a69fb23bd5b55adeb5e46fb8f",
+  "components": {},
+  "contracts": {
+    "registration": {
+      "kind": "lambda",
+      "arn": "arn:aws:lambda:eu-west-2:111122223333:function:example-registration:5"
+    },
+    "registry": {
+      "table_name": "example-contract-registry",
+      "arn": "arn:aws:dynamodb:eu-west-2:111122223333:table/example-contract-registry"
+    },
+    "tables": [
+      {
+        "source": "sandbox-postgres",
+        "database_name": "dms_test",
+        "schema_name": "public",
+        "table_name": "dms_integration_test",
+        "generation": {
+          "kind": "lambda",
+          "arn": "arn:aws:lambda:eu-west-2:111122223333:function:example-generation:7"
+        },
+        "validation": {
+          "kind": "lambda",
+          "arn": "arn:aws:lambda:eu-west-2:111122223333:function:example-validation:9"
+        }
+      }
+    ]
+  }
+}

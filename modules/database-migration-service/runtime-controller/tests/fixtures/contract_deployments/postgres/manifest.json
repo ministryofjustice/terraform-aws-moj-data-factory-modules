@@ -1,0 +1,32 @@
+{
+  "account_id": "111122223333",
+  "artifact_revision": "876761e4eecb45b1e5955c3bdeea9a1adaf3e06a69fb23bd5b55adeb5e46fb8f",
+  "configuration_revision": "2a9273e5d91eb3ea849e4818010a5480d9243e577938d0077eeadaaf8507fb8e",
+  "database_name": "dms_test",
+  "environment": "development",
+  "extraction_generation": "generation-one",
+  "manifest_version": 1,
+  "region": "eu-west-2",
+  "source": "sandbox-postgres",
+  "task_groups": {
+    "integration": {
+      "deployment_name": "df-sandbox-po-integr-26b1acbf353d7786",
+      "landing": {
+        "bucket_name": "example-development-raw",
+        "prefix": "landing/development/sandbox-postgres/dms_test/integration/generation-one/"
+      },
+      "migration_type": "full-load-and-cdc",
+      "replication_instance_arn": "arn:aws:dms:eu-west-2:111122223333:rep:INSTANCE1",
+      "replication_task_arn": "arn:aws:dms:eu-west-2:111122223333:task:TASK1",
+      "replication_task_id": "df-sandbox-po-integr-26b1acbf353d7786-task",
+      "source_endpoint_arn": "arn:aws:dms:eu-west-2:111122223333:endpoint:SOURCE1",
+      "tables": [
+        {
+          "schema_name": "public",
+          "table_name": "dms_integration_test"
+        }
+      ],
+      "target_endpoint_arn": "arn:aws:dms:eu-west-2:111122223333:endpoint:TARGET1"
+    }
+  }
+}
