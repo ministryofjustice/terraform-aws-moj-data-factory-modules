@@ -225,6 +225,9 @@ with tempfile.TemporaryDirectory(
         "ingestion_registry/admission.py",
         "ingestion_config/published_documents.py",
         "ingestion_config/schemas/deployment-v1.schema.json",
+        "dms_runtime/contract_lambda_function.py",
+        "dms_runtime/contract_factory.py",
+        "dms_runtime/contract_handler.py",
     }
 
     for relative_path in sorted(required_files):
@@ -241,6 +244,9 @@ import yaml
 import yaml._yaml
 
 from dms_runtime.lambda_function import lambda_handler
+from dms_runtime.contract_lambda_function import (
+    lambda_handler as contract_lambda_handler,
+)
 from ingestion_config.schema import load_schema
 from ingestion_registry.admission import IngestionRegistry
 
@@ -248,7 +254,7 @@ schema = load_schema("deployment-v1.schema.json")
 jsonschema.Draft202012Validator.check_schema(schema)
 
 assert callable(lambda_handler)
-
+assert callable(contract_lambda_handler)
 print("PASS: shared packages and native dependencies import")
 print("PASS: deployment schema loads and validates")
 """
