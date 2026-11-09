@@ -22,6 +22,7 @@ class ContractOrchestration:
         preparation=None,
         generated_assessment=None,
         assessment_requests=None,
+        validator=None,
     ):
         if not isinstance(trusted_policy, ContractPolicy):
             raise ValueError("trusted_policy must be a ContractPolicy")
@@ -94,6 +95,22 @@ class ContractOrchestration:
                     "the same assessor revision"
                 )
 
+        if validator is not None:
+            if (
+                assessment_requests is None
+                or generated_assessment is None
+            ):
+                raise ValueError(
+                    "Validation requires assessment requests "
+                    "and generated assessment admission"
+                )
+
+            if validator.assessment_requests is not assessment_requests:
+                raise ValueError(
+                    "Validation and orchestration must use "
+                    "the same assessment request service"
+                )
+
         self.lifecycle = lifecycle
         self.lookup = lookup
         self.assessment_admission = assessment_admission
@@ -104,6 +121,7 @@ class ContractOrchestration:
         self.registry = registry
         self.generated_assessment = generated_assessment
         self.assessment_requests = assessment_requests
+        self.validator = validator
 
     def prepare(
         self,
@@ -152,6 +170,45 @@ class ContractOrchestration:
             table=table,
             reservation_key=reservation_key,
             preparation_fingerprint=preparation_fingerprint,
+        )
+
+    def assess(
+        self,
+        *,
+        table: TableIdentity,
+        reservation_key: str,
+        preparation_fingerprint: str,
+    ) -> dict:
+        if not isinstance(table, TableIdentity):
+            raise ValueError("table must be a TableIdentity")
+
+        if self.validator is None:
+            raise ContractOrchestrationBlocked(
+                "Contract validation is not configured"
+            )
+
+        result = self.validator.assess(
+            table=table,
+            reservation_key=reservation_key,
+            preparation_fingerprint=preparation_fingerprint,
+        )
+
+        if (
+            result.get("status") != "ASSESSMENT_EVIDENCE_RETURNED"
+            or not isinstance(
+                result.get("evidence_reference"),
+                S3ObjectReference,
+            )
+        ):
+            raise ContractOrchestrationBlocked(
+                "Contract validation did not return assessment evidence"
+            )
+
+        return self.complete_assessment(
+            table=table,
+            reservation_key=reservation_key,
+            preparation_fingerprint=preparation_fingerprint,
+            evidence_reference=result["evidence_reference"],
         )
 
     def complete_assessment(
