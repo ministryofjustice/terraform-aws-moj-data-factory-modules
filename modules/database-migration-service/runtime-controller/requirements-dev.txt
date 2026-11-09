@@ -3,3 +3,4 @@ moto[dynamodb]>=5.1,<6.0
 SQLAlchemy==2.0.43
 fastavro==1.12.1
 pyarrow
+setuptools>=77,<85
