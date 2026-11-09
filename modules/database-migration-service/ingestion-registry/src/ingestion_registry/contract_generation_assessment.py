@@ -34,6 +34,7 @@ class GeneratedContractAssessment:
         request_fingerprint: str,
         evidence_reference: S3ObjectReference,
         policy: ContractPolicy,
+        assessment_request: dict | None = None,
     ) -> dict:
         if not isinstance(table, TableIdentity):
             raise ValueError("table must be a TableIdentity")
@@ -77,4 +78,5 @@ class GeneratedContractAssessment:
             ),
             evidence_reference=evidence_reference,
             policy=policy,
+            assessment_request=assessment_request,
         )

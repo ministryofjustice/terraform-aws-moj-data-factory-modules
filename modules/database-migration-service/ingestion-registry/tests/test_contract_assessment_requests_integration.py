@@ -129,6 +129,12 @@ def test_concurrent_baseline_change_blocks_request_write(
 ):
     setup = assessment_requests
     prepared = prepare(setup)
+
+    competing = setup["coordinator"].prepare(
+        table=setup["table"],
+        request_id="competing-baseline-request",
+    )
+
     lookup = setup["coordinator"].lookup
     original_resolve = lookup.resolve
 
@@ -141,7 +147,7 @@ def test_concurrent_baseline_change_blocks_request_write(
             original_resolve,
         )
 
-        activate_prepared_contract(setup, prepared)
+        activate_prepared_contract(setup, competing)
         return resolved
 
     monkeypatch.setattr(

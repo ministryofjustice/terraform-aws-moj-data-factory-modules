@@ -179,6 +179,69 @@ class ContractAssessmentRequests:
 
         return copy.deepcopy(record)
 
+    def read(
+        self,
+        *,
+        table,
+        reservation_key: str,
+        preparation_fingerprint: str,
+    ) -> dict:
+        reservation = self.completion._reservation(
+            table,
+            reservation_key,
+            preparation_fingerprint,
+        )
+
+        generation = self.registry._read(
+            reservation_key,
+            "GENERATION",
+        )
+
+        if generation is None:
+            raise ContractAssessmentRequestBlocked(
+                "Generation completion must exist before assessment"
+            )
+
+        generated = self.completion._verify_record(
+            generation,
+            table,
+            reservation,
+        )
+
+        record = self.registry._read(
+            reservation_key,
+            "ASSESSMENT_REQUEST",
+        )
+
+        if record is None:
+            raise ContractAssessmentRequestBlocked(
+                "Assessment must be requested before accepting its result"
+            )
+
+        self._verify_existing(
+            table=table,
+            reservation=reservation,
+            generation=generation,
+            generated=generated,
+            record=record,
+        )
+
+        snapshots = [
+            ("META", reservation),
+            ("GENERATION", generation),
+            ("ASSESSMENT_REQUEST", record),
+        ]
+
+        if any(
+            self.registry._read(reservation_key, sk) != original
+            for sk, original in snapshots
+        ):
+            raise ContractAssessmentRequestBlocked(
+                "Assessment request context changed during verification"
+            )
+
+        return copy.deepcopy(record)
+
     def _request(self, *, table, generated, selection):
         return {
             "assessment_request_version": 1,

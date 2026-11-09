@@ -21,6 +21,7 @@ class ContractOrchestration:
         trusted_policy: ContractPolicy,
         preparation=None,
         generated_assessment=None,
+        assessment_requests=None,
     ):
         if not isinstance(trusted_policy, ContractPolicy):
             raise ValueError("trusted_policy must be a ContractPolicy")
@@ -67,6 +68,32 @@ class ContractOrchestration:
                 "Contract orchestration services must use the same Registry"
             )
 
+        if assessment_requests is not None:
+            if assessment_requests.registry is not registry:
+                raise ValueError(
+                    "Assessment requests and orchestration "
+                    "must use the same Registry"
+                )
+
+            if (
+                generated_assessment is not None
+                and assessment_requests.completion
+                is not generated_assessment.completion
+            ):
+                raise ValueError(
+                    "Assessment requests and admission must use "
+                    "the same generation completion service"
+                )
+
+            if (
+                assessment_requests.assessor_revision
+                != assessment_admission.assessor_revision
+            ):
+                raise ValueError(
+                    "Assessment requests and admission must use "
+                    "the same assessor revision"
+                )
+
         self.lifecycle = lifecycle
         self.lookup = lookup
         self.assessment_admission = assessment_admission
@@ -76,6 +103,7 @@ class ContractOrchestration:
         self.preparation = preparation
         self.registry = registry
         self.generated_assessment = generated_assessment
+        self.assessment_requests = assessment_requests
 
     def prepare(
         self,
@@ -108,6 +136,24 @@ class ContractOrchestration:
             selection=resolved["selection"],
         )
 
+    def request_assessment(
+        self,
+        *,
+        table: TableIdentity,
+        reservation_key: str,
+        preparation_fingerprint: str,
+    ) -> dict:
+        if self.assessment_requests is None:
+            raise ContractOrchestrationBlocked(
+                "Contract assessment requests are not configured"
+            )
+
+        return self.assessment_requests.prepare(
+            table=table,
+            reservation_key=reservation_key,
+            preparation_fingerprint=preparation_fingerprint,
+        )
+
     def complete_assessment(
         self,
         *,
@@ -119,6 +165,11 @@ class ContractOrchestration:
         if self.generated_assessment is None:
             raise ContractOrchestrationBlocked(
                 "Generated contract assessment is not configured"
+            )
+
+        if self.assessment_requests is None:
+            raise ContractOrchestrationBlocked(
+                "Contract assessment requests are not configured"
             )
 
         if not isinstance(table, TableIdentity):
@@ -145,12 +196,19 @@ class ContractOrchestration:
                 "Generation completion must exist before assessment"
             )
 
+        assessment_request = self.assessment_requests.read(
+            table=table,
+            reservation_key=reservation_key,
+            preparation_fingerprint=preparation_fingerprint,
+        )
+
         request = self.generated_assessment.submit(
             table=table,
             reservation_key=reservation_key,
             request_fingerprint=preparation_fingerprint,
             evidence_reference=evidence_reference,
             policy=self.trusted_policy,
+            assessment_request=assessment_request["request"],
         )
 
         if (
@@ -158,6 +216,11 @@ class ContractOrchestration:
             or self.registry._read(reservation_key, "META") != reservation
             or self.registry._read(reservation_key, "GENERATION")
             != generation
+            or self.assessment_requests.read(
+                table=table,
+                reservation_key=reservation_key,
+                preparation_fingerprint=preparation_fingerprint,
+            ) != assessment_request
         ):
             raise ContractOrchestrationBlocked(
                 "Generation context changed during assessment admission"

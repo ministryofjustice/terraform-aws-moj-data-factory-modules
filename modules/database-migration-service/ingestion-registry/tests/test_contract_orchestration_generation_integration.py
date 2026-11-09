@@ -1,6 +1,6 @@
-from dataclasses import asdict
-
 import pytest
+from decimal import Decimal
+from ingestion_registry.references import S3ObjectReference
 
 from contract_integration_support import encode, store_reference
 from ingestion_registry.contract_activation import ContractActivation
@@ -30,7 +30,9 @@ from test_candidate_generation_integration import (
     generation_adapter as generation_adapter,
 )
 from test_contract_orchestration_integration import approve_request
-
+from ingestion_registry.contract_assessment_requests import (
+    ContractAssessmentRequests,
+)
 
 @pytest.fixture
 def connected_orchestration(preparation_setup):
@@ -60,6 +62,12 @@ def connected_orchestration(preparation_setup):
         assessment_admission=admission,
     )
 
+    assessment_requests = ContractAssessmentRequests(
+        generation_completion=setup["completion"],
+        current_lookup=lookup,
+        assessor_revision="test-assessor-v1",
+    )
+
     coordinator = ContractOrchestration(
         lifecycle=setup["lifecycle"],
         lookup=lookup,
@@ -76,10 +84,10 @@ def connected_orchestration(preparation_setup):
         trusted_policy=ContractPolicy(revision="policy-v1"),
         preparation=setup["preparation"],
         generated_assessment=generated_assessment,
+        assessment_requests=assessment_requests,
     )
 
     return {**setup, "coordinator": coordinator}
-
 
 def prepare(setup):
     return setup["coordinator"].prepare(
@@ -89,31 +97,32 @@ def prepare(setup):
 
 
 def evidence(setup, prepared, *, wrong_candidate=False):
-    candidate = dict(prepared["candidate_reference"])
+    recorded = setup["coordinator"].request_assessment(
+        table=setup["table"],
+        reservation_key=prepared["reservation_key"],
+        preparation_fingerprint=prepared["preparation_fingerprint"],
+    )
+
+    document = {
+        key: value
+        for key, value in recorded["request"].items()
+        if key != "assessment_request_version"
+    }
+    document["validation_result_version"] = 1
+    document["validation"] = "VALID"
+    document["compatibility"] = "FIRST_CONTRACT"
 
     if wrong_candidate:
-        candidate["version_id"] = "different-candidate-version"
-
-    identity = asdict(setup["table"])
-    identity.pop("environment")
-    identity["contract_version"] = prepared["contract_version"]
+        document["candidate_reference"] = {
+            **document["candidate_reference"],
+            "version_id": "different-candidate-version",
+        }
 
     return store_reference(
         setup["s3"],
         "test-contract-evidence",
         "validation/connected-contract-request/result.json",
-        encode(
-            {
-                "validation_result_version": 1,
-                "request_id": prepared["request_id"],
-                "identity": identity,
-                "candidate_reference": candidate,
-                "baseline_reference": None,
-                "assessor_revision": "test-assessor-v1",
-                "validation": "VALID",
-                "compatibility": "FIRST_CONTRACT",
-            }
-        ),
+        encode(document),
     )
 
 
@@ -250,3 +259,76 @@ def test_preparation_assessment_and_approval_produce_ready_contract(
     )["selection"] == ready["selection"]
 
     assert complete_assessment(setup, prepared, reference) == ready
+
+def test_result_requires_a_previously_recorded_assessment_request(
+    connected_orchestration,
+):
+    from ingestion_registry.contract_assessment_requests import (
+        ContractAssessmentRequestBlocked,
+    )
+
+    setup = connected_orchestration
+    prepared = prepare(setup)
+    reference = evidence(setup, prepared)
+
+    setup["registry"].client.delete_item(
+        TableName=setup["registry"].table_name,
+        Key=setup["registry"]._encode(
+            {
+                "pk": prepared["reservation_key"],
+                "sk": "ASSESSMENT_REQUEST",
+            }
+        ),
+    )
+
+    setup["invocation"].invoke.reset_mock()
+
+    with pytest.raises(
+        ContractAssessmentRequestBlocked,
+        match="requested before",
+    ):
+        complete_assessment(setup, prepared, reference)
+
+    setup["invocation"].invoke.assert_not_called()
+
+    assert setup["lifecycle"].read(
+        table=setup["table"],
+        request_id=prepared["request_id"],
+    ) is None
+
+@pytest.mark.parametrize(
+    "invalid_version",
+    [True, 1.0, "1", Decimal("1.5")],
+)
+def test_pinned_assessment_request_rejects_invalid_version_types(
+    connected_orchestration,
+    invalid_version,
+):
+    setup = connected_orchestration
+    prepared = prepare(setup)
+    reference = evidence(setup, prepared)
+
+    recorded = setup["registry"]._read(
+        prepared["reservation_key"],
+        "ASSESSMENT_REQUEST",
+    )
+    pinned_request = {
+        **recorded["request"],
+        "assessment_request_version": invalid_version,
+    }
+
+    with pytest.raises(
+        ContractAssessmentBlocked,
+        match="assessment request version",
+    ):
+        setup["coordinator"].assessment_admission.submit(
+            table=setup["table"],
+            request_id=prepared["request_id"],
+            contract_version=prepared["contract_version"],
+            candidate_reference=S3ObjectReference(
+                **prepared["candidate_reference"]
+            ),
+            evidence_reference=reference,
+            policy=setup["coordinator"].trusted_policy,
+            assessment_request=pinned_request,
+        )

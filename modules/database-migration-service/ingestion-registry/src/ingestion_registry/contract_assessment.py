@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict
+from decimal import Decimal
 
 from ingestion_registry.contract_policy import (
     CompatibilityOutcome,
@@ -112,6 +113,7 @@ class ContractAssessmentAdmission:
         candidate_reference: S3ObjectReference,
         evidence_reference: S3ObjectReference,
         policy: ContractPolicy,
+        assessment_request: dict | None = None,
     ) -> dict:
         self.lifecycle._key(table, request_id)
 
@@ -145,16 +147,38 @@ class ContractAssessmentAdmission:
         )
 
         if existing is None:
-            current = self.current_lookup.resolve(table=table)
-            baseline = (
-                None
-                if current is None
-                else S3ObjectReference(
-                    **current["selection"]["registered_contract"][
-                        "object_reference"
-                    ]
+            if assessment_request is not None:
+                if (
+                    not isinstance(assessment_request, dict)
+                    or "baseline_reference" not in assessment_request
+                ):
+                    raise ContractAssessmentBlocked(
+                        "Pinned assessment request has no baseline"
+                    )
+
+                baseline_data = assessment_request["baseline_reference"]
+
+                try:
+                    baseline = (
+                        None
+                        if baseline_data is None
+                        else S3ObjectReference(**baseline_data)
+                    )
+                except (TypeError, ValueError) as error:
+                    raise ContractAssessmentBlocked(
+                        "Pinned assessment baseline is invalid"
+                    ) from error
+            else:
+                current = self.current_lookup.resolve(table=table)
+                baseline = (
+                    None
+                    if current is None
+                    else S3ObjectReference(
+                        **current["selection"]["registered_contract"][
+                            "object_reference"
+                        ]
+                    )
                 )
-            )
         else:
             recorded_assessment = existing.get("assessment")
 
@@ -273,6 +297,44 @@ class ContractAssessmentAdmission:
                 ensure_ascii=False,
                 allow_nan=False,
             )
+
+        if assessment_request is not None:
+            if not isinstance(assessment_request, dict):
+                raise ContractAssessmentBlocked(
+                    "Pinned assessment request must be an object"
+                )
+
+            request_version = assessment_request.get(
+                "assessment_request_version"
+            )
+
+            if (
+                type(request_version) not in (int, Decimal)
+                or request_version != 1
+            ):
+                raise ContractAssessmentBlocked(
+                    "Unsupported assessment request version"
+                )
+
+            normalised_request = {
+                **assessment_request,
+                "assessment_request_version": 1,
+            }
+
+            expected_request = {
+                "assessment_request_version": 1,
+                **{
+                    field: value
+                    for field, value in expected.items()
+                    if field != "validation_result_version"
+                },
+            }
+
+            if canonical(normalised_request) != canonical(expected_request):
+                raise ContractAssessmentBlocked(
+                    "Pinned assessment request does not match "
+                    "the candidate, baseline and assessor"
+                )
 
         if canonical(actual_context) != canonical(expected):
             raise ContractAssessmentBlocked(
