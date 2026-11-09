@@ -21,6 +21,76 @@ resource "aws_iam_role" "validation" {
 }
 
 data "aws_iam_policy_document" "validation" {
+  dynamic "statement" {
+    for_each = var.contract_assessment == null ? [] : [var.contract_assessment]
+
+    content {
+      sid    = "ReadAssessmentContracts"
+      effect = "Allow"
+
+      actions = [
+        "s3:GetObjectVersion",
+      ]
+
+      resources = [
+        "arn:${data.aws_partition.current.partition}:s3:::${statement.value.candidate.bucket_name}/${statement.value.candidate.prefix}*",
+        "arn:${data.aws_partition.current.partition}:s3:::${statement.value.baseline.bucket_name}/${statement.value.baseline.prefix}*",
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.contract_assessment == null ? [] : [var.contract_assessment]
+
+    content {
+      sid    = "StoreAssessmentEvidence"
+      effect = "Allow"
+
+      actions = [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+      ]
+
+      resources = [
+        "arn:${data.aws_partition.current.partition}:s3:::${statement.value.evidence.bucket_name}/${statement.value.evidence.prefix}*",
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.contract_assessment == null ? [] : (
+      length(var.contract_assessment.read_kms_key_arns) > 0
+      ? [var.contract_assessment]
+      : []
+    )
+
+    content {
+      sid       = "DecryptAssessmentContracts"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = sort(tolist(statement.value.read_kms_key_arns))
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.contract_assessment == null ? [] : [var.contract_assessment]
+
+    content {
+      sid    = "EncryptAssessmentEvidence"
+      effect = "Allow"
+
+      actions = [
+        "kms:Decrypt",
+        "kms:GenerateDataKey",
+      ]
+
+      resources = [
+        statement.value.evidence.kms_key_arn,
+      ]
+    }
+  }
+
   statement {
     sid       = "ReadRegisteredContracts"
     effect    = "Allow"

@@ -326,3 +326,75 @@ variable "tags" {
   default     = {}
   nullable    = false
 }
+
+variable "contract_assessment" {
+  description = "Optional trusted locations and assessor revision for candidate contract assessment. Buckets must have versioning enabled."
+  type = object({
+    assessor_revision = string
+
+    candidate = object({
+      bucket_name             = string
+      prefix                  = string
+      bucket_owner_account_id = string
+    })
+
+    baseline = object({
+      bucket_name             = string
+      prefix                  = string
+      bucket_owner_account_id = string
+    })
+
+    evidence = object({
+      bucket_name             = string
+      prefix                  = string
+      bucket_owner_account_id = string
+      kms_key_arn             = string
+    })
+
+    read_kms_key_arns = set(string)
+  })
+  default = null
+
+  validation {
+    condition = var.contract_assessment == null ? true : (
+      length(trimspace(var.contract_assessment.assessor_revision)) > 0 &&
+      var.contract_assessment.assessor_revision == trimspace(var.contract_assessment.assessor_revision) &&
+      length(var.contract_assessment.assessor_revision) <= 256
+    )
+    error_message = "assessor_revision must contain 1–256 characters without surrounding whitespace."
+  }
+
+  validation {
+    condition = var.contract_assessment == null ? true : alltrue([
+      for location in [
+        var.contract_assessment.candidate,
+        var.contract_assessment.baseline,
+        var.contract_assessment.evidence,
+      ] :
+      can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", location.bucket_name)) &&
+      can(regex("^[0-9]{12}$", location.bucket_owner_account_id)) &&
+      can(regex("^[^/*?]+(/[^/*?]+)*/$", location.prefix)) &&
+      location.prefix == trimspace(location.prefix) &&
+      alltrue([
+        for segment in split("/", trimsuffix(location.prefix, "/")) :
+        !contains([".", ".."], segment) &&
+        segment == trimspace(segment)
+      ])
+    ])
+    error_message = "Assessment locations require explicit bucket names, 12-digit owners and non-empty prefixes ending in '/'. Prefixes must not contain wildcards, empty segments, surrounding whitespace or dot segments."
+  }
+
+  validation {
+    condition = var.contract_assessment == null ? true : alltrue([
+      for key_arn in setunion(
+        var.contract_assessment.read_kms_key_arns,
+        toset([var.contract_assessment.evidence.kms_key_arn]),
+      ) :
+      can(regex(
+        "^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[A-Za-z0-9-]+$",
+        key_arn,
+      ))
+    ])
+    error_message = "Assessment encryption settings must use explicit KMS key ARNs."
+  }
+}
