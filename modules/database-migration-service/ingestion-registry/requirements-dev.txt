@@ -5,3 +5,4 @@ setuptools>=77,<85
 # Generation runtime imports used by contract integration tests
 SQLAlchemy==2.0.43
 fastavro==1.12.1
+pyarrow
