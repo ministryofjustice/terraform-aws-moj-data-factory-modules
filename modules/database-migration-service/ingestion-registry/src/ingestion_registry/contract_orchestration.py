@@ -19,11 +19,20 @@ class ContractOrchestration:
         reuse,
         activation,
         trusted_policy: ContractPolicy,
+        preparation=None,
     ):
         if not isinstance(trusted_policy, ContractPolicy):
             raise ValueError("trusted_policy must be a ContractPolicy")
 
         registry = lifecycle.registry
+
+        if (
+            preparation is not None
+            and preparation.registry is not registry
+        ):
+            raise ValueError(
+                "Preparation and orchestration must use the same Registry"
+            )
 
         if any(
             candidate is not registry
@@ -44,6 +53,23 @@ class ContractOrchestration:
         self.reuse = reuse
         self.activation = activation
         self.trusted_policy = trusted_policy
+        self.preparation = preparation
+
+    def prepare(
+        self,
+        *,
+        table: TableIdentity,
+        request_id: str,
+    ) -> dict:
+        if self.preparation is None:
+            raise ContractOrchestrationBlocked(
+                "Contract generation preparation is not configured"
+            )
+
+        return self.preparation.prepare(
+            table=table,
+            request_id=request_id,
+        )
 
     def resolve(self, *, table: TableIdentity) -> dict:
         resolved = self.lookup.resolve(table=table)
