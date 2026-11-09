@@ -504,3 +504,41 @@ def test_handler_rejects_different_assessor_revision(
 
     setup["s3"].get_object.assert_not_called()
     setup["s3"].put_object.assert_not_called()
+
+def test_actual_handler_reports_invalid_candidate_without_comparison(
+    assessment_setup,
+    monkeypatch,
+):
+    setup = assessment_setup
+
+    candidate = contract("v2")
+    candidate["fields"][0]["name"] = "invalid-field-name"
+
+    setup["request"]["candidate_reference"] = setup["store"](
+        "test-contract-candidates",
+        "candidates/invalid-contract/contract.avsc",
+        candidate,
+    )
+
+    configure_handler(setup, monkeypatch)
+
+    result = main.lambda_handler(
+        {
+            "operation": "ASSESS_CONTRACT",
+            "request": setup["request"],
+        },
+        None,
+    )
+
+    assert result["status"] == "ASSESSMENT_COMPLETED"
+    assert result["validation"] == "INVALID"
+    assert result["compatibility"] == "UNSUPPORTED"
+
+    reference = result["evidence_reference"]
+    stored = setup["objects"][
+        (reference["bucket_name"], reference["object_key"])
+    ]
+    document = json.loads(stored["content"])
+
+    assert document["validation"] == "INVALID"
+    assert document["compatibility"] == "UNSUPPORTED"
