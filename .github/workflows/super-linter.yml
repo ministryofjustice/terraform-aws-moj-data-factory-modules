@@ -1,0 +1,19 @@
+# yamllint disable-file
+---
+name: Super Linter
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions: {}
+
+jobs:
+  super-linter:
+    name: Super Linter
+    permissions:
+      contents: read
+      packages: read
+      statuses: write
+    uses: ministryofjustice/data-platform-github-actions/.github/workflows/super-linter.yml@f8eec741ffb11054c5d89cd7af91540cd36b0d2a # v3.4.3
