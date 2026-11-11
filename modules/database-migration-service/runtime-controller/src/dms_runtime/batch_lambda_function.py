@@ -4,7 +4,11 @@ from typing import Any
 
 from dms_runtime.batch_handler import BatchHandler
 from ingestion_registry.admission import IngestionRegistry
-from ingestion_registry.ownership import OwnershipClaim, OwnershipLost
+from ingestion_registry.ownership import (
+    IngestionOwnership,
+    OwnershipClaim,
+    OwnershipLost,
+)
 
 
 def build_batch_entry_point(
@@ -12,11 +16,16 @@ def build_batch_entry_point(
     handler: BatchHandler,
     registry: IngestionRegistry,
     clock: Callable[[], int] | None = None,
-) -> Callable[[Any, Any], dict[str, str]]:
-    """Build the JSON entry point for the downstream batch handler."""
-    now = clock if clock is not None else lambda: int(time.time())
+    lease_seconds: int = 300,
+) -> Callable[[Any, Any], dict[str, str | int]]:
+    """Build the JSON entry point for downstream batch operations."""
+    if type(lease_seconds) is not int or not 1 <= lease_seconds <= 3600:
+        raise ValueError("lease_seconds must be an integer from 1 to 3600")
 
-    def entry_point(event: Any, _context: Any) -> dict[str, str]:
+    now = clock if clock is not None else lambda: int(time.time())
+    ownership = IngestionOwnership(registry, clock=now)
+
+    def entry_point(event: Any, _context: Any) -> dict[str, str | int]:
         if not isinstance(event, dict) or set(event) != {
             "request_version",
             "action",
@@ -88,13 +97,22 @@ def build_batch_entry_point(
             recovery_required=record["recovery_required"],
         )
 
-        return handler.handle(
-            {
-                "request_version": version,
-                "action": action,
+        if action == "renew_ingestion_lease":
+            renewed = ownership.renew(claim, lease_seconds=lease_seconds)
+            return {
                 "ingestion_id": ingestion_id,
-            },
-            claim=claim,
+                "lease_expires_at": renewed.lease_expires_at,
+            }
+
+        return dict(
+            handler.handle(
+                {
+                    "request_version": version,
+                    "action": action,
+                    "ingestion_id": ingestion_id,
+                },
+                claim=claim,
+            )
         )
 
     return entry_point
