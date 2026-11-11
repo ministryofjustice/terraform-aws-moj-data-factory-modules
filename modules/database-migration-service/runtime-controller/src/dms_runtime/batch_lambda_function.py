@@ -17,6 +17,7 @@ def build_batch_entry_point(
     registry: IngestionRegistry,
     clock: Callable[[], int] | None = None,
     lease_seconds: int = 300,
+    check_scope: Callable[[str], Any] | None = None,
 ) -> Callable[[Any, Any], dict[str, str | int]]:
     """Build the JSON entry point for downstream batch operations."""
     if type(lease_seconds) is not int or not 1 <= lease_seconds <= 3600:
@@ -97,6 +98,9 @@ def build_batch_entry_point(
             recovery_required=record["recovery_required"],
         )
 
+        if check_scope is not None:
+            check_scope(ingestion_id)
+
         if action == "renew_ingestion_lease":
             renewed = ownership.renew(claim, lease_seconds=lease_seconds)
             return {
@@ -129,3 +133,23 @@ def _require_identifier(value: Any, field: str) -> None:
             f"{field} must contain 1 to 256 UTF-8 bytes "
             "without surrounding whitespace"
         )
+
+
+def test_scope_check_blocks_renewal_and_dispatch(batch_entry_setup):
+    _, handler, registry, event = batch_entry_setup
+    check_scope = Mock(side_effect=ValueError("outside the service scope"))
+    entry_point = build_batch_entry_point(
+        handler=handler,
+        registry=registry,
+        clock=lambda: 1000,
+        check_scope=check_scope,
+    )
+
+    for action in ("renew_ingestion_lease", "advance_publication"):
+        with pytest.raises(ValueError, match="outside the service scope"):
+            entry_point({**event, "action": action}, None)
+
+    handler.handle.assert_not_called()
+    assert check_scope.call_count == 2
+    check_scope.assert_called_with("ingestion-one")
+    assert registry._read.call_count == 2
