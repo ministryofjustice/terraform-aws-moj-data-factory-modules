@@ -44,6 +44,60 @@ class RegisteredContract:
                 "64 lowercase hexadecimal characters"
             )
 
+@dataclass(frozen=True)
+class PolicyContractAuthorisation:
+    evidence_reference: S3ObjectReference
+    policy_revision: str
+    request_key: str
+    request_fingerprint: str
+    request_revision: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.evidence_reference, S3ObjectReference):
+            raise ValueError(
+                "evidence_reference must be an S3ObjectReference"
+            )
+
+        if (
+            not isinstance(self.policy_revision, str)
+            or not self.policy_revision
+            or self.policy_revision != self.policy_revision.strip()
+            or len(self.policy_revision.encode("utf-8")) > 256
+        ):
+            raise ValueError(
+                "policy_revision must contain 1 to 256 UTF-8 bytes "
+                "without surrounding whitespace"
+            )
+
+        if (
+            not isinstance(self.request_key, str)
+            or re.fullmatch(
+                r"CONTRACTREQUEST#[a-f0-9]{64}",
+                self.request_key,
+            ) is None
+        ):
+            raise ValueError("Invalid policy authorisation request_key")
+
+        if (
+            not isinstance(self.request_fingerprint, str)
+            or re.fullmatch(
+                r"[a-f0-9]{64}",
+                self.request_fingerprint,
+            ) is None
+        ):
+            raise ValueError(
+                "request_fingerprint must contain "
+                "64 lowercase hexadecimal characters"
+            )
+
+        if (
+            not isinstance(self.request_revision, int)
+            or isinstance(self.request_revision, bool)
+            or self.request_revision < 1
+        ):
+            raise ValueError(
+                "request_revision must be a positive integer"
+            )
 
 class IngestionContracts:
     def __init__(
@@ -57,14 +111,33 @@ class IngestionContracts:
         claim: OwnershipClaim,
         *,
         contract: RegisteredContract,
-        approval_reference: S3ObjectReference,
         update_id: str,
         expected_revision: int,
+        approval_reference: S3ObjectReference | None = None,
+        policy_authorisation: PolicyContractAuthorisation | None = None,
+        condition_checks: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        if not isinstance(approval_reference, S3ObjectReference):
-            raise ValueError(
-                "approval_reference must be an S3ObjectReference"
-            )
+        if policy_authorisation is None:
+            if not isinstance(approval_reference, S3ObjectReference):
+                raise ValueError(
+                    "approval_reference must be an S3ObjectReference "
+                    "when policy_authorisation is absent"
+                )
+        else:
+            if not isinstance(
+                policy_authorisation,
+                PolicyContractAuthorisation,
+            ):
+                raise ValueError(
+                    "policy_authorisation must be a "
+                    "PolicyContractAuthorisation"
+                )
+
+            if approval_reference is not None:
+                raise ValueError(
+                    "Provide either approval_reference or "
+                    "policy_authorisation, not both"
+                )
 
         ingestion = self.progress.registry._read(
             f"INGESTION#{claim.ingestion_id}",
@@ -126,11 +199,41 @@ class IngestionContracts:
                 contract.object_reference.version_id
             ),
             "contract_object_sha256": contract.object_reference.sha256,
-            "approval_bucket_name": approval_reference.bucket_name,
-            "approval_object_key": approval_reference.object_key,
-            "approval_object_version_id": approval_reference.version_id,
-            "approval_object_sha256": approval_reference.sha256,
         }
+
+        if policy_authorisation is None:
+            reference.update(
+                {
+                    "approval_bucket_name": approval_reference.bucket_name,
+                    "approval_object_key": approval_reference.object_key,
+                    "approval_object_version_id": (
+                        approval_reference.version_id
+                    ),
+                    "approval_object_sha256": approval_reference.sha256,
+                }
+            )
+        else:
+            evidence = policy_authorisation.evidence_reference
+
+            reference.update(
+                {
+                    "authorisation_kind": "POLICY",
+                    "authorisation_bucket_name": evidence.bucket_name,
+                    "authorisation_object_key": evidence.object_key,
+                    "authorisation_object_version_id": evidence.version_id,
+                    "authorisation_object_sha256": evidence.sha256,
+                    "policy_revision": policy_authorisation.policy_revision,
+                    "authorisation_request_key": (
+                        policy_authorisation.request_key
+                    ),
+                    "authorisation_request_fingerprint": (
+                        policy_authorisation.request_fingerprint
+                    ),
+                    "authorisation_request_revision": str(
+                        policy_authorisation.request_revision
+                    ),
+                }
+            )
 
         return self.progress.record_stage(
             claim,
@@ -139,4 +242,5 @@ class IngestionContracts:
             update_id=update_id,
             expected_revision=expected_revision,
             result_reference=reference,
+            condition_checks=condition_checks,
         )

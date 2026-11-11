@@ -1,0 +1,35 @@
+{
+  "catalog_version": 1,
+  "environment": "development",
+  "account_id": "111122223333",
+  "region": "eu-west-2",
+  "configuration_revision": "ecd2b46543a36eae6db855f19a60a7594840233d1c9ea5c2222b5e018c76bec6",
+  "artifact_revision": "09a0df84fde00a1d2a2a85dc99caeba3a4b092ab983a230513cce03e2b06c9c3",
+  "components": {},
+  "contracts": {
+    "registration": {
+      "kind": "lambda",
+      "arn": "arn:aws:lambda:eu-west-2:111122223333:function:example-registration:5"
+    },
+    "registry": {
+      "table_name": "example-contract-registry",
+      "arn": "arn:aws:dynamodb:eu-west-2:111122223333:table/example-contract-registry"
+    },
+    "tables": [
+      {
+        "source": "sandbox-oracle",
+        "database_name": "DMSTEST",
+        "schema_name": "DMS_USER",
+        "table_name": "DMS_INTEGRATION_TEST",
+        "generation": {
+          "kind": "lambda",
+          "arn": "arn:aws:lambda:eu-west-2:111122223333:function:example-generation:7"
+        },
+        "validation": {
+          "kind": "lambda",
+          "arn": "arn:aws:lambda:eu-west-2:111122223333:function:example-validation:9"
+        }
+      }
+    ]
+  }
+}

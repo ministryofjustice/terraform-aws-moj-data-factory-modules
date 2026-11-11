@@ -1,3 +1,8 @@
 pytest>=9.0,<10.0
 moto[dynamodb]>=5.1,<6.0
 setuptools>=77,<85
+
+# Generation runtime imports used by contract integration tests
+SQLAlchemy==2.0.43
+fastavro==1.12.1
+pyarrow

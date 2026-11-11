@@ -1,12 +1,17 @@
 locals {
   validation_table_name = "${var.name}-validation-audit"
 
-  validation_environment = {
-    SCHEMA_AUDIT_TABLE_NAME     = var.registry_table_name
-    VALIDATION_AUDIT_TABLE_NAME = local.validation_table_name
-    INGESTION_TYPE              = var.ingestion_type
-    SOURCE_MAPPINGS             = jsonencode(var.source_mappings)
-  }
+  validation_environment = merge(
+    {
+      SCHEMA_AUDIT_TABLE_NAME     = var.registry_table_name
+      VALIDATION_AUDIT_TABLE_NAME = local.validation_table_name
+      INGESTION_TYPE              = var.ingestion_type
+      SOURCE_MAPPINGS             = jsonencode(var.source_mappings)
+    },
+    var.contract_assessment == null ? {} : {
+      CONTRACT_ASSESSMENT_CONFIG = jsonencode(var.contract_assessment)
+    },
+  )
 
   incoming_object_arns = toset([
     for mapping in var.source_mappings :

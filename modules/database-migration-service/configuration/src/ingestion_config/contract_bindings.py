@@ -181,3 +181,69 @@ def _validate_registry(
             "Contract registry ARN must match its table name "
             "and the pinned account and region"
         )
+
+def resolve_contract_execution_bindings(
+    table_binding: dict[str, Any],
+    catalog: dict[str, Any],
+    *,
+    generation_function_arn: str,
+    validation_function_arn: str,
+    registration_function_arn: str,
+    registry_table_name: str,
+    registry_table_arn: str,
+) -> dict[str, Any]:
+    resolved = resolve_contract_bindings(
+        table_binding,
+        catalog,
+        required_capabilities=[
+            "generation",
+            "validation",
+            "registration",
+            "registry",
+        ],
+    )
+
+    for capability in (
+        "generation",
+        "validation",
+        "registration",
+    ):
+        arn = resolved[capability]["arn"]
+
+        if re.fullmatch(
+            r"arn:aws:lambda:[a-z0-9-]+:[0-9]{12}:"
+            r"function:[A-Za-z0-9_-]+:[1-9][0-9]*",
+            arn,
+        ) is None:
+            raise ConfigurationError(
+                f"Contract execution capability {capability!r} "
+                "must reference a published numeric Lambda version"
+            )
+
+    configured = {
+        "generation": {
+            "kind": "lambda",
+            "arn": generation_function_arn,
+        },
+        "validation": {
+            "kind": "lambda",
+            "arn": validation_function_arn,
+        },
+        "registration": {
+            "kind": "lambda",
+            "arn": registration_function_arn,
+        },
+        "registry": {
+            "table_name": registry_table_name,
+            "arn": registry_table_arn,
+        },
+    }
+
+    for capability, expected in resolved.items():
+        if configured[capability] != expected:
+            raise ConfigurationError(
+                f"Configured contract capability {capability!r} "
+                "does not match the pinned deployment catalog"
+            )
+
+    return resolved

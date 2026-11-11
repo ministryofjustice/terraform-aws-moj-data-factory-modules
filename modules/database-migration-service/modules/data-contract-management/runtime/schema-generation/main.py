@@ -11,6 +11,7 @@ from sqlalchemy.dialects import oracle, postgresql
 from fastavro.schema import parse_schema
 from botocore.exceptions import ClientError
 from logger import get_logger
+from candidate_storage import store_candidate
 from urllib.parse import quote
 
 
@@ -952,6 +953,7 @@ def generate_contract(
     namespace: str,
     execution_id: str,
     contacts: dict,
+    candidate_destination: dict | None = None,
 ):
     log_context = {
         "execution_id": execution_id,
@@ -999,19 +1001,47 @@ def generate_contract(
         contacts=contacts,
     )
 
-    publication = save_contract(
-        schema_registry_bucket,
-        contract,
-    )
+    if candidate_destination is None:
+        publication = save_contract(
+            schema_registry_bucket,
+            contract,
+        )
+    else:
+        validate_avro_contract(contract)
+
+        publication = store_candidate(
+            s3_client=s3,
+            content=normalise_contract(contract).encode("utf-8"),
+            identity={
+                field: contract[field]
+                for field in (
+                    "source",
+                    "database_name",
+                    "schema_name",
+                    "table_name",
+                    "contract_version",
+                )
+            },
+            **candidate_destination,
+        )
+        publication["contract_fingerprint"] = (
+            calculate_contract_fingerprint(contract)
+        )
+
+    candidate_reference = publication.get("candidate_reference", {})
 
     logger.info(
         "Schema generation completed.",
         extra={
             **log_context,
             "publication_status": publication["status"],
-            "object_key": publication["s3_key"],
+            "object_key": publication.get(
+                "s3_key",
+                candidate_reference.get("object_key"),
+            ),
             "s3_object_version_id": publication.get(
-                "s3_object_version_id"
+                "s3_object_version_id",
+                candidate_reference.get("version_id"),
             ),
         },
     )
@@ -1025,6 +1055,268 @@ def generate_contract(
         **publication,
     }
 
+def resolve_requested_tables(event, config):
+    if not isinstance(event, dict):
+        raise ValueError("Generation request must be a JSON object.")
+
+    # Preserve the existing configured batch invocation.
+    if not event:
+        return list(config["TABLE_LIST"])
+
+    required_fields = {
+        "source",
+        "database_name",
+        "schema_name",
+        "table_name",
+        "contract_version",
+    }
+
+    if set(event) != required_fields:
+        raise ValueError(
+            "A selected-table generation request must contain exactly: "
+            + ", ".join(sorted(required_fields))
+        )
+
+    for field in required_fields:
+        value = event[field]
+
+        if (
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+        ):
+            raise ValueError(
+                f"{field} must be a non-empty string "
+                "without surrounding whitespace."
+            )
+
+    configured_identity = {
+        "source": config["CONTRACT_SERVICE"],
+        "database_name": config["DATABASE_NAME"],
+        "schema_name": config["SCHEMA_NAME"],
+        "contract_version": config["CONTRACT_VERSION"],
+    }
+
+    for field, expected in configured_identity.items():
+        if event[field] != expected:
+            raise ValueError(
+                f"Requested {field} does not match "
+                "the configured generation capability."
+            )
+
+    table_name = event["table_name"]
+
+    if table_name not in config["TABLE_LIST"]:
+        raise ValueError(
+            "Requested table_name is not permitted by TABLE_LIST."
+        )
+
+    return [table_name]
+
+def read_contract_version_reservation(table_name, partition_key):
+    table = boto3.resource("dynamodb").Table(table_name)
+
+    return table.get_item(
+        Key={"pk": partition_key, "sk": "META"},
+        ConsistentRead=True,
+    ).get("Item")
+
+
+def verify_contract_version_reservation(event, config):
+    reference = event.get("version_reservation")
+
+    if (
+        not isinstance(reference, dict)
+        or set(reference) != {"request_key", "request_fingerprint"}
+        or not isinstance(reference["request_key"], str)
+        or re.fullmatch(
+            r"CONTRACTVERSIONREQUEST#[a-f0-9]{64}",
+            reference["request_key"],
+        ) is None
+        or not isinstance(reference["request_fingerprint"], str)
+        or re.fullmatch(
+            r"[a-f0-9]{64}",
+            reference["request_fingerprint"],
+        ) is None
+    ):
+        raise ValueError(
+            "version_reservation requires an explicit reservation "
+            "request_key and request_fingerprint."
+        )
+
+    table_name = os.getenv("CONTRACT_CONTROL_TABLE")
+    environment = os.getenv("CONTRACT_ENVIRONMENT")
+
+    if (
+        not isinstance(table_name, str)
+        or re.fullmatch(r"[A-Za-z0-9_.-]{3,255}", table_name) is None
+    ):
+        raise ValueError(
+            "CONTRACT_CONTROL_TABLE must contain a valid table name."
+        )
+
+    if (
+        not isinstance(environment, str)
+        or len(environment) > 63
+        or re.fullmatch(
+            r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*",
+            environment,
+        ) is None
+    ):
+        raise ValueError(
+            "CONTRACT_ENVIRONMENT must contain a valid environment."
+        )
+
+    record = read_contract_version_reservation(
+        table_name,
+        reference["request_key"],
+    )
+
+    expected_identity = {
+        "environment": environment,
+        "source": config["CONTRACT_SERVICE"],
+        "database_name": config["DATABASE_NAME"],
+        "schema_name": config["SCHEMA_NAME"],
+        "table_name": event["table_name"],
+    }
+
+    if (
+        not isinstance(record, dict)
+        or record.get("record_type")
+        != "CONTRACT_VERSION_RESERVATION"
+        or record.get("pk") != reference["request_key"]
+        or record.get("sk") != "META"
+        or record.get("request_id") != event["request_id"]
+        or record.get("request_fingerprint")
+        != reference["request_fingerprint"]
+        or record.get("table_identity") != expected_identity
+        or record.get("contract_version") != event["contract_version"]
+    ):
+        raise ValueError(
+            "Version reservation does not match the selected "
+            "generation request, environment, table and version."
+        )
+
+def resolve_generation_request(event, config):
+    if not isinstance(event, dict):
+        raise ValueError("Generation request must be a JSON object.")
+
+    if "operation" not in event:
+        return resolve_requested_tables(event, config), None
+
+    if event["operation"] != "GENERATE_CANDIDATE":
+        raise ValueError("Unsupported generation operation.")
+
+    expected_fields = {
+        "operation",
+        "request_id",
+        "source",
+        "database_name",
+        "schema_name",
+        "table_name",
+        "contract_version",
+        "version_reservation",
+    }
+
+    if set(event) != expected_fields:
+        raise ValueError(
+            "Candidate generation requires exactly: "
+            + ", ".join(sorted(expected_fields))
+        )
+
+    request_id = event["request_id"]
+
+    if (
+        not isinstance(request_id, str)
+        or not request_id
+        or request_id != request_id.strip()
+        or len(request_id.encode("utf-8")) > 256
+    ):
+        raise ValueError(
+            "request_id must contain 1 to 256 UTF-8 bytes "
+            "without surrounding whitespace."
+        )
+
+    version = event["contract_version"]
+
+    if (
+        not isinstance(version, str)
+        or re.fullmatch(r"v[1-9][0-9]*", version) is None
+    ):
+        raise ValueError("contract_version must use v1, v2, etc.")
+
+    selected_request = {
+        field: event[field]
+        for field in (
+            "source",
+            "database_name",
+            "schema_name",
+            "table_name",
+            "contract_version",
+        )
+    }
+
+    # Keep the existing source/table scope checks. A requested version
+    # is usable only after the reservation check immediately below.
+    selection_config = {
+        **config,
+        "CONTRACT_VERSION": version,
+    }
+    tables = resolve_requested_tables(
+        selected_request,
+        selection_config,
+    )
+
+    verify_contract_version_reservation(event, config)
+
+    destination = {
+        "request_id": request_id,
+        "bucket_name": os.getenv("CONTRACT_CANDIDATE_BUCKET"),
+        "bucket_owner_account_id": os.getenv(
+            "CONTRACT_CANDIDATE_BUCKET_OWNER"
+        ),
+        "kms_key_arn": os.getenv("CONTRACT_CANDIDATE_KMS_KEY_ARN"),
+    }
+
+    bucket = destination["bucket_name"]
+
+    if (
+        not isinstance(bucket, str)
+        or not bucket
+        or bucket != bucket.strip()
+        or "/" in bucket
+    ):
+        raise ValueError(
+            "CONTRACT_CANDIDATE_BUCKET must be configured "
+            "with an explicit bucket name."
+        )
+
+    owner = destination["bucket_owner_account_id"]
+
+    if (
+        not isinstance(owner, str)
+        or re.fullmatch(r"[0-9]{12}", owner) is None
+    ):
+        raise ValueError(
+            "CONTRACT_CANDIDATE_BUCKET_OWNER must contain 12 digits."
+        )
+
+    key_arn = destination["kms_key_arn"]
+
+    if (
+        not isinstance(key_arn, str)
+        or re.fullmatch(
+            r"arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/"
+            r"[A-Za-z0-9-]+",
+            key_arn,
+        ) is None
+    ):
+        raise ValueError(
+            "CONTRACT_CANDIDATE_KMS_KEY_ARN must be "
+            "an explicit KMS key ARN."
+        )
+
+    return tables, destination
 
 def lambda_handler(event, context):
     execution_id = getattr(context, "aws_request_id", None)
@@ -1037,6 +1329,14 @@ def lambda_handler(event, context):
 
     try:
         config = validate_configuration()
+        requested_tables, candidate_destination = (
+            resolve_generation_request(event, config)
+        )
+        if candidate_destination is not None:
+            config = {
+                **config,
+                "CONTRACT_VERSION": event["contract_version"],
+            }
 
         log_context.update(
             {
@@ -1052,7 +1352,7 @@ def lambda_handler(event, context):
             "Schema generation configuration loaded.",
             extra={
                 **log_context,
-                "table_count": len(config["TABLE_LIST"]),
+                "table_count": len(requested_tables),
             },
         )
 
@@ -1078,7 +1378,7 @@ def lambda_handler(event, context):
         with db_engine.connect() as connection:
             inspector = inspect(connection)
 
-            for table_name in config["TABLE_LIST"]:
+            for table_name in requested_tables:
                 try:
                     result = generate_contract(
                         inspector=inspector,
@@ -1096,6 +1396,15 @@ def lambda_handler(event, context):
                         namespace=config["CONTRACT_NAMESPACE"],
                         execution_id=execution_id,
                         contacts=config["CONTRACT_CONTACTS"],
+                        **(
+                            {
+                                "candidate_destination": (
+                                    candidate_destination
+                                )
+                            }
+                            if candidate_destination is not None
+                            else {}
+                        ),
                     )
 
                     generated_contracts.append(result)

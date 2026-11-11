@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from typing import Any, Dict
 from fastavro.schema import parse_schema
+from contract_assessment import ContractAssessmentService
 
 
 from logger import get_logger
@@ -1308,7 +1309,7 @@ def process_event(record, context):
         )
         raise
 
-def lambda_handler(event, context):
+def handle_s3_event(event, context):
 
     if not isinstance(event, dict):
         raise ValueError("Expected an S3 event object.")
@@ -1349,3 +1350,54 @@ def lambda_handler(event, context):
         "processed_records": len(results),
         "results": results,
     }
+
+def validate_assessment_contract(contract):
+    validate_required_metadata(contract)
+    extract_version_number(contract["contract_version"])
+    validate_avro_schema(contract)
+
+
+def handle_contract_assessment(event):
+    if set(event) != {"operation", "request"}:
+        raise ValueError(
+            "ASSESS_CONTRACT requires exactly operation and request."
+        )
+
+    raw_configuration = os.getenv("CONTRACT_ASSESSMENT_CONFIG")
+
+    if (
+        not isinstance(raw_configuration, str)
+        or not raw_configuration.strip()
+    ):
+        raise ValueError(
+            "Contract assessment is not configured."
+        )
+
+    try:
+        configuration = json.loads(raw_configuration)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            "CONTRACT_ASSESSMENT_CONFIG must be valid JSON."
+        ) from error
+
+    service = ContractAssessmentService(
+        s3_client=s3,
+        configuration=configuration,
+        validate_contract=validate_assessment_contract,
+        canonicalise_schema=canonicalise_schema,
+    )
+
+    return service.assess(request=event["request"])
+
+
+def lambda_handler(event, context):
+    if not isinstance(event, dict):
+        raise ValueError("Expected an event object.")
+
+    if "operation" in event:
+        if event["operation"] != "ASSESS_CONTRACT":
+            raise ValueError("Unsupported validation operation.")
+
+        return handle_contract_assessment(event)
+
+    return handle_s3_event(event, context)
