@@ -8,6 +8,8 @@ from ingestion_registry.contracts import RegisteredContract
 from ingestion_registry.identity import TableIdentity
 from ingestion_registry.references import S3ObjectReference
 
+MAX_REGISTERED_CONTRACT_BYTES = 1024 * 1024 #1 MiB
+
 
 class ContractNotRegistered(RuntimeError):
     """No registration exists for the requested contract version."""
@@ -188,7 +190,11 @@ class RegisteredContractVerifier:
                     "S3 returned a different contract object version"
                 )
 
-            raw = body.read()
+            raw = body.read(MAX_REGISTERED_CONTRACT_BYTES + 1)
+            if len(raw) > MAX_REGISTERED_CONTRACT_BYTES:
+                raise ContractVerificationError(
+                    "Registered contract exceeds the 1 MiB size limit"
+                )
         finally:
             body.close()
 

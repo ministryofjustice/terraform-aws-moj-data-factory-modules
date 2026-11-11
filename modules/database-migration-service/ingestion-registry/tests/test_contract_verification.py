@@ -201,6 +201,25 @@ def test_wrong_object_version_is_rejected_and_body_closed(setup):
 
     assert setup[4].closed
 
+def test_oversized_registered_contract_is_rejected_and_body_closed(setup):
+    _, _, _, s3, body, raw, _ = setup
+    limit = 1024 * 1024
+    oversized = raw.ljust(limit + 1, b" ")
+
+    with io.BytesIO(oversized) as stream:
+        replacement = Mock(wraps=stream)
+        s3.get_object.return_value["Body"] = replacement
+        body.close()
+
+        with pytest.raises(
+            ContractVerificationError,
+            match="Registered contract exceeds the 1 MiB size limit",
+        ):
+            verify(setup)
+
+        replacement.read.assert_called_once_with(limit + 1)
+        assert stream.closed
+
 
 @pytest.mark.parametrize(
     "raw",
