@@ -134,6 +134,9 @@ jobs:
             "$wheel_runtime"
 
           cp -R tests "$wheel_tests/tests"
+          mkdir -p "$wheel_tests/workflows"
+          cp workflows/batch-downstream.asl.json \
+            "$wheel_tests/workflows/batch-downstream.asl.json"
           cp publish_artifact.py "$wheel_tests/publish_artifact.py"
 
           cp -R \

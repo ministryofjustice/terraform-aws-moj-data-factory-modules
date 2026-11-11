@@ -1,0 +1,145 @@
+{
+  "Comment": "Advance downstream batch stages for one owned ingestion",
+  "StartAt": "SelectEntry",
+  "TimeoutSeconds": 900,
+  "States": {
+    "SelectEntry": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.mode",
+          "StringEquals": "batch",
+          "Next": "SetUpstreamActions"
+        },
+        {
+          "Variable": "$.mode",
+          "StringEquals": "resume_publication",
+          "Next": "AdvancePublication"
+        }
+      ],
+      "Default": "InvalidEntryMode"
+    },
+    "InvalidEntryMode": {
+      "Type": "Fail",
+      "Error": "InvalidBatchEntryMode",
+      "Cause": "Expected batch or resume_publication"
+    },
+    "SetUpstreamActions": {
+      "Type": "Pass",
+      "Result": ["advance_processing", "advance_raw_history"],
+      "ResultPath": "$.upstream_actions",
+      "Next": "RunUpstreamStages"
+    },
+    "RunUpstreamStages": {
+      "Type": "Map",
+      "ItemsPath": "$.upstream_actions",
+      "MaxConcurrency": 2,
+      "ItemSelector": {
+        "request": {
+          "request_version": 1,
+          "action.$": "$$.Map.Item.Value",
+          "ingestion_id.$": "$.ingestion_id",
+          "ingestion_owner.$": "$.ingestion_owner"
+        }
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "AdvanceUpstreamStage",
+        "States": {
+          "AdvanceUpstreamStage": {
+            "Type": "Task",
+            "Resource": "${batch_lambda_arn}",
+            "InputPath": "$.request",
+            "ResultPath": "$.result",
+            "TimeoutSeconds": 60,
+            "Next": "CheckUpstreamStage"
+          },
+          "CheckUpstreamStage": {
+            "Type": "Choice",
+            "Choices": [
+              {
+                "Variable": "$.result.status",
+                "StringEquals": "SUCCEEDED",
+                "Next": "UpstreamStageComplete"
+              },
+              {
+                "Variable": "$.result.status",
+                "StringEquals": "RUNNING",
+                "Next": "WaitForUpstreamStage"
+              }
+            ],
+            "Default": "UpstreamStageFailed"
+          },
+          "WaitForUpstreamStage": {
+            "Type": "Wait",
+            "Seconds": 15,
+            "Next": "AdvanceUpstreamStage"
+          },
+          "UpstreamStageComplete": {
+            "Type": "Succeed"
+          },
+          "UpstreamStageFailed": {
+            "Type": "Fail",
+            "Error": "BatchUpstreamStageFailed",
+            "CausePath": "States.Format('Ingestion {} did not complete {}', $.request.ingestion_id, $.request.action)"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "AdvancePublication"
+    },
+    "AdvancePublication": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "advance_publication",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": "$.publication_result",
+      "TimeoutSeconds": 60,
+      "Next": "CheckPublication"
+    },
+    "CheckPublication": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.publication_result.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "MarkBaselineReady"
+        },
+        {
+          "Variable": "$.publication_result.status",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForPublication"
+        }
+      ],
+      "Default": "PublicationFailed"
+    },
+    "WaitForPublication": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "AdvancePublication"
+    },
+    "PublicationFailed": {
+      "Type": "Fail",
+      "Error": "BatchPublicationFailed",
+      "CausePath": "States.Format('Publication did not complete for ingestion {}', $.ingestion_id)"
+    },
+    "MarkBaselineReady": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "mark_baseline_ready",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "TimeoutSeconds": 60,
+      "End": true
+    }
+  }
+}
