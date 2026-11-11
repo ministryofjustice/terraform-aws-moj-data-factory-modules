@@ -100,3 +100,28 @@ def test_rejects_caller_supplied_lease_before_read(batch_entry_setup):
 
     registry._read.assert_not_called()
     handler.handle.assert_not_called()
+
+@pytest.mark.parametrize(
+    "action",
+    ["renew_ingestion_lease", "advance_publication"],
+)
+def test_scope_check_blocks_renewal_and_dispatch(batch_entry_setup, action):
+    _, handler, registry, event = batch_entry_setup
+    check_scope = Mock(side_effect=ValueError("outside the service scope"))
+
+    entry_point = build_batch_entry_point(
+        handler=handler,
+        registry=registry,
+        clock=lambda: 1000,
+        check_scope=check_scope,
+    )
+
+    with pytest.raises(ValueError, match="outside the service scope"):
+        entry_point({**event, "action": action}, None)
+
+    check_scope.assert_called_once_with(event["ingestion_id"])
+    handler.handle.assert_not_called()
+    registry._read.assert_called_once_with(
+        f"INGESTION#{event['ingestion_id']}",
+        "OWNERSHIP",
+    )
