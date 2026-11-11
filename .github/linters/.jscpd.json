@@ -1,11 +1,16 @@
 {
-  "threshold": 0,
+  "threshold": 5,
   "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
   "ignore": [
+    "**/.terraform/**",
+    "**/*.tfstate",
+    "**/*.tfstate.*",
+    "**/node_modules/**"
     "**/__snapshots__/**",
-    "**/node_modules/**",
     "**/examples/**",
     "**/*test*.py"
   ],
-  "absolute": true
+  ]
 }

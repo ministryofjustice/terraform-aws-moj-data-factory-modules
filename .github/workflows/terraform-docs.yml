@@ -38,3 +38,10 @@ jobs:
         with:
           config-file: .terraform-docs.yml
           fail-on-diff: "true"
+
+      - name: Show diff
+        id: show_diff
+        if: failure() && steps.terraform_docs.outcome == 'failure'
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git diff HEAD --color=always

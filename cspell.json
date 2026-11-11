@@ -48,6 +48,8 @@
     "oracledb",
     "osuser",
     "preprod",
+    "powerbi",
+    "color",
     "psycopg",
     "pyarrow",
     "pycache",
