@@ -19,6 +19,8 @@ from ingestion_registry.identity import TableIdentity
 from ingestion_registry.ownership import IngestionOwnership
 from ingestion_registry.progress import IngestionProgress
 from ingestion_registry.requests import NewIngestionRequest
+from dms_runtime.batch_lambda_function import build_batch_entry_point
+from ingestion_registry.ownership import OwnershipLost
 
 
 @pytest.fixture
@@ -412,3 +414,73 @@ def test_publication_waits_for_processing_and_recovers_lost_response(
             ingestion_id=claim.ingestion_id,
             stage=stage,
         ) == before
+
+def test_renewed_batch_owner_can_poll_past_original_expiry(processing_setup):
+    processing, adapter, _, ownership, claim, clock, *_ = processing_setup
+    adapter.submit.return_value = None
+    adapter.lookup.return_value = None
+
+    handler = Mock()
+
+    def handle(request, *, claim):
+        assert request["action"] == "advance_processing"
+        result = processing.advance(claim)
+        return {
+            "ingestion_id": claim.ingestion_id,
+            "stage": result["stage"],
+            "status": result["status"],
+        }
+
+    handler.handle.side_effect = handle
+    entry_point = build_batch_entry_point(
+        handler=handler,
+        registry=ownership.registry,
+        clock=lambda: clock["now"],
+        lease_seconds=300,
+    )
+    event = {
+        "request_version": 1,
+        "action": "advance_processing",
+        "ingestion_id": claim.ingestion_id,
+        "ingestion_owner": {
+            "execution_id": claim.execution_id,
+            "fencing_token": claim.fencing_token,
+            "attempt": claim.attempt,
+        },
+    }
+
+    assert entry_point(event, None)["status"] == "RUNNING"
+    operation_id = adapter.submit.call_args.kwargs["operation_id"]
+
+    clock["now"] = claim.lease_expires_at - 1
+    renew_event = {**event, "action": "renew_ingestion_lease"}
+    renewed = entry_point(renew_event, None)
+
+    assert renewed["lease_expires_at"] == clock["now"] + 300
+    handler.handle.assert_called_once()
+
+    clock["now"] = claim.lease_expires_at
+    assert entry_point(event, None)["status"] == "RUNNING"
+
+    polled_claim = handler.handle.call_args.kwargs["claim"]
+    assert polled_claim.execution_id == claim.execution_id
+    assert polled_claim.fencing_token == claim.fencing_token
+    assert polled_claim.attempt == claim.attempt
+    assert polled_claim.lease_expires_at == renewed["lease_expires_at"]
+    adapter.lookup.assert_called_once_with(operation_id=operation_id)
+    adapter.submit.assert_called_once()
+
+    clock["now"] = renewed["lease_expires_at"]
+    ownership.claim(
+        ingestion_id=claim.ingestion_id,
+        execution_id="replacement-worker",
+    )
+
+    with pytest.raises(OwnershipLost, match="expired or superseded"):
+        entry_point(renew_event, None)
+
+    with pytest.raises(OwnershipLost, match="expired or superseded"):
+        entry_point(event, None)
+
+    assert handler.handle.call_count == 2
+    adapter.lookup.assert_called_once_with(operation_id=operation_id)

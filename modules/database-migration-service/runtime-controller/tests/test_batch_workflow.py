@@ -1,10 +1,12 @@
 import json
+import re
 from collections import deque
 from pathlib import Path
 
 import pytest
 
 from dms_runtime.batch_downstream import BatchPrerequisiteMissing
+from ingestion_registry.ownership import OwnershipLost
 
 
 WORKFLOW_PATH = (
@@ -49,9 +51,18 @@ def read_path(data, path):
         return data
     assert path.startswith("$."), path
 
-    for key in path[2:].split("."):
-        data = data[key]
+    for key in re.split(r"\.|\[|\]", path[2:]):
+        if key:
+            data = data[int(key)] if isinstance(data, list) else data[key]
     return data
+
+
+def matches_choice(choice, data):
+    if "And" in choice:
+        return all(matches_choice(rule, data) for rule in choice["And"])
+    if "Or" in choice:
+        return any(matches_choice(rule, data) for rule in choice["Or"])
+    return read_path(data, choice["Variable"]) == choice["StringEquals"]
 
 
 def render_parameters(template, data, *, item=None):
@@ -92,8 +103,7 @@ def walk_states(definition, data, invoke):
                 (
                     choice["Next"]
                     for choice in state["Choices"]
-                    if read_path(data, choice["Variable"])
-                    == choice["StringEquals"]
+                    if matches_choice(choice, data)
                 ),
                 state["Default"],
             )
@@ -174,6 +184,12 @@ class ScriptedBatch:
         if isinstance(outcome, Exception):
             raise outcome
 
+        if action == "renew_ingestion_lease":
+            return {
+                "ingestion_id": INGESTION_ID,
+                "lease_expires_at": outcome,
+            }
+
         return {
             "ingestion_id": INGESTION_ID,
             "stage": STAGES[action],
@@ -201,8 +217,9 @@ def run_workflow(workflow, batch, *, mode):
 
 def test_publication_waits_for_processing_and_raw_history(workflow):
     batch = ScriptedBatch(
+        renew_ingestion_lease=[1300, 1315, 1315],
         advance_processing=["RUNNING", "SUCCEEDED"],
-        advance_raw_history=["SUCCEEDED"],
+        advance_raw_history=["SUCCEEDED", "SUCCEEDED"],
         advance_publication=["SUCCEEDED"],
         mark_baseline_ready=["SUCCEEDED"],
     )
@@ -210,9 +227,13 @@ def test_publication_waits_for_processing_and_raw_history(workflow):
     result = run_workflow(workflow, batch, mode="batch")
 
     assert batch.calls == [
+        "renew_ingestion_lease",
         "advance_processing",
         "advance_raw_history",
+        "renew_ingestion_lease",
         "advance_processing",
+        "advance_raw_history",
+        "renew_ingestion_lease",
         "advance_publication",
         "mark_baseline_ready",
     ]
@@ -225,6 +246,7 @@ def test_publication_waits_for_processing_and_raw_history(workflow):
 
 def test_publication_recovery_bypasses_upstream_stages(workflow):
     batch = ScriptedBatch(
+        renew_ingestion_lease=[1300, 1315],
         advance_publication=["RUNNING", "SUCCEEDED"],
         mark_baseline_ready=["SUCCEEDED"],
     )
@@ -232,7 +254,9 @@ def test_publication_recovery_bypasses_upstream_stages(workflow):
     result = run_workflow(workflow, batch, mode="resume_publication")
 
     assert batch.calls == [
+        "renew_ingestion_lease",
         "advance_publication",
+        "renew_ingestion_lease",
         "advance_publication",
         "mark_baseline_ready",
     ]
@@ -241,6 +265,7 @@ def test_publication_recovery_bypasses_upstream_stages(workflow):
 
 def test_required_reconciliation_blocks_baseline_readiness(workflow):
     batch = ScriptedBatch(
+        renew_ingestion_lease=[1300],
         advance_publication=[
             BatchPrerequisiteMissing("RECONCILIATION has not succeeded")
         ],
@@ -249,11 +274,15 @@ def test_required_reconciliation_blocks_baseline_readiness(workflow):
     with pytest.raises(BatchPrerequisiteMissing, match="RECONCILIATION"):
         run_workflow(workflow, batch, mode="resume_publication")
 
-    assert batch.calls == ["advance_publication"]
+    assert batch.calls == [
+        "renew_ingestion_lease",
+        "advance_publication",
+    ]
 
 
 def test_lost_publication_response_can_resume_at_publication(workflow):
     batch = ScriptedBatch(
+        renew_ingestion_lease=[1300, 1300, 1315],
         advance_processing=["SUCCEEDED"],
         advance_raw_history=["SUCCEEDED"],
         advance_publication=[TimeoutError("response lost"), "SUCCEEDED"],
@@ -269,7 +298,26 @@ def test_lost_publication_response_can_resume_at_publication(workflow):
     result = run_workflow(workflow, batch, mode="resume_publication")
 
     assert batch.calls[calls_before_recovery:] == [
+        "renew_ingestion_lease",
         "advance_publication",
         "mark_baseline_ready",
     ]
     assert result["status"] == "SUCCEEDED"
+
+
+def test_lease_loss_stops_the_next_upstream_round(workflow):
+    batch = ScriptedBatch(
+        renew_ingestion_lease=[1300, OwnershipLost("lease lost")],
+        advance_processing=["RUNNING"],
+        advance_raw_history=["SUCCEEDED"],
+    )
+
+    with pytest.raises(OwnershipLost, match="lease lost"):
+        run_workflow(workflow, batch, mode="batch")
+
+    assert batch.calls == [
+        "renew_ingestion_lease",
+        "advance_processing",
+        "advance_raw_history",
+        "renew_ingestion_lease",
+    ]
