@@ -142,7 +142,8 @@ def test_publication_recovers_catalogue_write_after_lost_response(
         registration.history_commit.sha256
     )
     catalogue.create.assert_called_once()
-    catalogue.read.assert_called_once_with(
+    assert catalogue.read.call_count == 2
+    catalogue.read.assert_called_with(
         database="example_history",
         table="example_v1",
     )

@@ -1,11 +1,10 @@
-import hashlib
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from dms_runtime.processing_inputs import (
-    ProcessingInputError,
     VerifiedProcessingInputs,
+    read_pinned_input,
 )
 from ingestion_registry.references import S3ObjectReference
 
@@ -40,27 +39,14 @@ class BoundedS3ProcessingExecutor:
         verified: list[tuple[S3ObjectReference, bytes]] = []
 
         for reference in inputs.raw_objects:
-            response = self._client.get_object(
-                Bucket=reference.bucket_name,
-                Key=reference.object_key,
-                VersionId=reference.version_id,
-                ExpectedBucketOwner=self._owner,
+            raw = read_pinned_input(
+                self._client,
+                reference,
+                owner=self._owner,
+                limit=remaining,
+                label="Raw object",
+                size_error="Raw batch exceeds the executor byte limit",
             )
-            body = response["Body"]
-            try:
-                if response.get("VersionId") != reference.version_id:
-                    raise ProcessingInputError("Raw object version does not match")
-
-                raw = body.read(remaining + 1)
-                if len(raw) > remaining:
-                    raise ProcessingInputError(
-                        "Raw batch exceeds the executor byte limit"
-                    )
-                if hashlib.sha256(raw).hexdigest() != reference.sha256:
-                    raise ProcessingInputError("Raw object checksum does not match")
-            finally:
-                body.close()
-
             remaining -= len(raw)
             verified.append((reference, raw))
 

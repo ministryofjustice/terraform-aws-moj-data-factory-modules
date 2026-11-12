@@ -7,6 +7,8 @@ import pytest
 from dms_runtime.downstream_commit_adapter import DownstreamCommitAdapter
 from dms_runtime.raw_history_component import RawHistoryTarget
 from test_processing_inputs import pinned_inputs as pinned_inputs
+from dataclasses import replace
+from unittest.mock import Mock
 
 
 OPERATION_ID = "a" * 64
@@ -99,3 +101,39 @@ def test_history_recovers_original_commit_after_lost_response(pinned_inputs):
         assert body.read() == b"original fixture data"
 
     assert s3.list_object_versions(Bucket=bucket)["Versions"] == versions_before
+
+def test_oversized_history_commit_is_rejected_before_archive_writes(
+    pinned_inputs,
+):
+    verifier, request, raw, _, _ = pinned_inputs
+    verified = verifier.verify(request)
+    landing_prefix = request["deployment"]["landing"]["prefix"]
+    raw_objects = tuple(
+        replace(raw, object_key=f"{landing_prefix}part-{index:03d}.parquet")
+        for index in range(50)
+    )
+
+    pinned_verifier = Mock(spec=type(verifier))
+    pinned_verifier.verify.return_value = replace(
+        verified, raw_objects=raw_objects
+    )
+    s3 = Mock()
+    target = RawHistoryTarget(
+        client=s3,
+        verifier=pinned_verifier,
+        raw_bucket_owner="123456789012",
+        history_bucket="raw-history-component-test",
+        history_bucket_owner="123456789012",
+        history_prefix="history/",
+        max_batch_bytes=1024,
+    )
+
+    with pytest.raises(ValueError, match="Processing evidence exceeds 256 KiB"):
+        target.commit(
+            operation_id=OPERATION_ID,
+            request_fingerprint="b" * 64,
+            request=request,
+        )
+
+    s3.put_object.assert_not_called()
+    s3.get_object.assert_not_called()

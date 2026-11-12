@@ -57,6 +57,30 @@ class S3ProcessingResultStore:
         self._prefix = prefix
         self._expected_bucket_owner = expected_bucket_owner
 
+    def validate_size(
+        self,
+        *,
+        operation_id: str,
+        worker_token: str,
+        request: Mapping[str, Any],
+        output: Mapping[str, Any],
+    ) -> None:
+        context = self._context(operation_id, worker_token, request)
+        self._encode_evidence(context, output)
+
+    @staticmethod
+    def _encode_evidence(
+        context: Mapping[str, Any],
+        output: Mapping[str, Any],
+    ) -> bytes:
+        if not isinstance(output, Mapping) or not output:
+            raise ValueError("Processing output evidence must be a non-empty object")
+
+        raw = _canonical_json({**context, "output": dict(output)})
+        if len(raw) > MAX_RESULT_BYTES:
+            raise ValueError("Processing evidence exceeds 256 KiB")
+        return raw
+
     def write(
         self,
         *,
@@ -67,12 +91,7 @@ class S3ProcessingResultStore:
     ) -> S3ObjectReference:
         key = self._key(operation_id, worker_token)
         context = self._context(operation_id, worker_token, request)
-        if not isinstance(output, Mapping) or not output:
-            raise ValueError("Processing output evidence must be a non-empty object")
-
-        expected = _canonical_json({**context, "output": dict(output)})
-        if len(expected) > MAX_RESULT_BYTES:
-            raise ValueError("Processing evidence exceeds 256 KiB")
+        expected = self._encode_evidence(context, output)
 
         try:
             response = self._client.put_object(

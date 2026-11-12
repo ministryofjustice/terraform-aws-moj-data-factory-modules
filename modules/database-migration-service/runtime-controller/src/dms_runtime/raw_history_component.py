@@ -13,6 +13,9 @@ from dms_runtime.processing_result_store import S3ProcessingResultStore
 from ingestion_registry.references import S3ObjectReference
 
 
+_MAX_VERSION_ID_PLACEHOLDER = "\x00" * 1024
+
+
 class RawHistoryTarget:
     def __init__(
         self,
@@ -51,6 +54,35 @@ class RawHistoryTarget:
         request: Mapping[str, Any],
     ) -> ProcessingCompletion:
         inputs = self._verifier.verify(request)
+        worker_token = request_fingerprint[:32]
+        prefix = self._data_prefix(operation_id)
+        landing_prefix = request["deployment"]["landing"]["prefix"]
+
+        projected_objects = [
+            {
+                "source": asdict(source),
+                "archived": {
+                    "bucket_name": self._bucket,
+                    "object_key": (
+                        f"{prefix}{source.object_key.removeprefix(landing_prefix)}"
+                    ),
+                    "version_id": _MAX_VERSION_ID_PLACEHOLDER,
+                    "sha256": source.sha256,
+                },
+            }
+            for source in inputs.raw_objects
+        ]
+        self._commits.validate_size(
+            operation_id=operation_id,
+            worker_token=worker_token,
+            request=request,
+            output={
+                "history_location": f"s3://{self._bucket}/{prefix}",
+                "contract": asdict(inputs.contract),
+                "objects": projected_objects,
+            },
+        )
+
         output = self._executor.execute(
             operation_id=operation_id,
             request=request,
@@ -58,7 +90,7 @@ class RawHistoryTarget:
         )
         reference = self._commits.write(
             operation_id=operation_id,
-            worker_token=request_fingerprint[:32],
+            worker_token=worker_token,
             request=request,
             output=output,
         )

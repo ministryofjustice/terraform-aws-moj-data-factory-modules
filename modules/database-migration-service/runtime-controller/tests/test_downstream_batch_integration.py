@@ -23,8 +23,14 @@ from test_processing_inputs import pinned_inputs as pinned_inputs
 from test_raw_batch_manifest import manifest_setup as manifest_setup
 
 
+@pytest.mark.parametrize(
+    "write_before_timeout",
+    [False, True],
+    ids=["interrupted-before-write", "response-lost-after-write"],
+)
 def test_batch_recovers_publication_after_history_and_reconciliation(
     manifest_setup,
+    write_before_timeout,
 ):
     producer, progress, claim, verifier, request, raw, s3 = manifest_setup
     deployment = request["deployment"]
@@ -104,8 +110,11 @@ def test_batch_recovers_publication_after_history_and_reconciliation(
     def create(registration):
         key = (registration.database, registration.table)
         assert key not in registrations
+        if catalogue.create.call_count == 1:
+            if write_before_timeout:
+                registrations[key] = registration
+            raise TimeoutError("Catalogue response lost")
         registrations[key] = registration
-        raise TimeoutError("Catalogue response lost")
 
     def read(*, database, table):
         return registrations.get((database, table))
@@ -228,18 +237,24 @@ def test_batch_recovers_publication_after_history_and_reconciliation(
     with pytest.raises(TimeoutError, match="Catalogue response lost"):
         handle(handler, "advance_publication")
 
+    assert bool(registrations) is write_before_timeout
     pending = read_stage("PUBLICATION")
     assert pending["status"] == "RUNNING"
-    operation_id = pending["result_reference"]["operation_id"]
+    reservation = pending["result_reference"]
+    operation_id = reservation["operation_id"]
 
     recovered_handler = build_handler()
-    assert handle(
-        recovered_handler, "advance_publication"
-    )["status"] == "SUCCEEDED"
+    assert handle(recovered_handler, "advance_publication")["status"] == (
+        "SUCCEEDED"
+    )
     publication = read_stage("PUBLICATION")
     assert publication["result_reference"]["operation_id"] == operation_id
+    assert publication["result_reference"]["request_fingerprint"] == (
+        reservation["request_fingerprint"]
+    )
 
     history_evidence = upstream_before["HISTORY_BASELINE"]["result_reference"]
+    assert len(registrations) == 1
     registration = registrations[("example_history", "example_v1")]
     assert registration.operation_id == operation_id
     assert registration.history_commit.version_id == history_evidence["version_id"]
@@ -252,9 +267,10 @@ def test_batch_recovers_publication_after_history_and_reconciliation(
         "status": "SUCCEEDED",
     }
 
-    catalogue.create.assert_called_once()
-    catalogue.read.assert_called_once_with(
-        database="example_history", table="example_v1"
+    assert catalogue.create.call_count == (1 if write_before_timeout else 2)
+    catalogue.read.assert_any_call(
+        database="example_history",
+        table="example_v1",
     )
     processing_adapter.submit.assert_called_once()
     processing_adapter.lookup.assert_called_once_with(

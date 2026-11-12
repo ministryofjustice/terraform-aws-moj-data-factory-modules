@@ -191,6 +191,28 @@ class ProcessingComponent:
 
         return worker_token, json.loads(result["Attributes"]["request_json"])
 
+    def requeue(self, operation_id: str, *, worker_token: str) -> bool:
+        _require_digest(operation_id, "operation_id")
+
+        try:
+            self._table.update_item(
+                Key={"operation_id": operation_id},
+                ConditionExpression="#status = :running AND worker_token = :token",
+                UpdateExpression="SET #status = :accepted REMOVE worker_token",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":running": "RUNNING",
+                    ":accepted": "ACCEPTED",
+                    ":token": worker_token,
+                },
+            )
+        except ClientError as error:
+            if _conditional_failure(error):
+                return False
+            raise
+
+        return True
+
     def read_running_work(
         self,
         operation_id: str,

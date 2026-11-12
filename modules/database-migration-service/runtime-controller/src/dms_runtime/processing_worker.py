@@ -4,6 +4,7 @@ from typing import Any, Protocol
 from dms_runtime.processing_component import ProcessingComponent
 from dms_runtime.processing_inputs import (
     ProcessingInputError,
+    RetryableProcessingReadError,
     VerifiedProcessingInputs,
 )
 from ingestion_registry.references import S3ObjectReference
@@ -76,6 +77,9 @@ class ProcessingWorker:
                 request=request,
                 inputs=inputs,
             )
+        except RetryableProcessingReadError:
+            self._component.requeue(operation_id, worker_token=worker_token)
+            raise
         except ProcessingInputError:
             self._component.fail(
                 operation_id,

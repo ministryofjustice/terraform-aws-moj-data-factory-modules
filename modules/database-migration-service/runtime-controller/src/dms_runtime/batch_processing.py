@@ -48,12 +48,11 @@ def _fingerprint(value: Mapping[str, Any]) -> str:
 
 
 class _BatchStage:
-    """Submit or recover one downstream stage for an ingestion."""
-
     stage: str
     operation_kind: str
     update_prefix: str
     required_result_fields: tuple[str, ...] = ()
+    resubmit_on_missing_completion = False
 
     def __init__(
         self,
@@ -115,6 +114,12 @@ class _BatchStage:
                 )
 
             completion = self._adapter.lookup(operation_id=operation_id)
+            if completion is None and self.resubmit_on_missing_completion:
+                completion = self._adapter.submit(
+                    operation_id=operation_id,
+                    request_fingerprint=request_fingerprint,
+                    request=request,
+                )
 
         if completion is None:
             return current
@@ -171,28 +176,25 @@ class _BatchStage:
 
 
 class BatchProcessing(_BatchStage):
-    """Advance the Processing stage for the completed Raw batch."""
-
     stage = "PROCESSING"
     operation_kind = "processing-operation"
     update_prefix = "processing"
 
 
 class BatchRawHistory(_BatchStage):
-    """Advance the Raw History baseline for the completed Raw batch."""
-
     stage = "HISTORY_BASELINE"
     operation_kind = "raw-history-operation"
     update_prefix = "raw-history"
     required_result_fields = ("commit_id", "history_location")
+    resubmit_on_missing_completion = True
+
 
 class BatchPublication(_BatchStage):
-    """Publish the committed Raw History baseline for an ingestion."""
-
     stage = "PUBLICATION"
     operation_kind = "publication-operation"
     update_prefix = "publication"
     required_result_fields = ("glue_database", "glue_table")
+    resubmit_on_missing_completion = True
 
     def __init__(
         self,
@@ -248,9 +250,8 @@ class BatchPublication(_BatchStage):
             },
         }
 
-class BatchReconciliation(_BatchStage):
-    """Reconcile the completed Processing and Raw History results."""
 
+class BatchReconciliation(_BatchStage):
     stage = "RECONCILIATION"
     operation_kind = "reconciliation-operation"
     update_prefix = "reconciliation"

@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ingestion_registry.references import S3ObjectReference
+from botocore.exceptions import (
+    ClientError,
+    ConnectionError as BotocoreConnectionError,
+    HTTPClientError,
+    IncompleteReadError,
+)
 
 
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -34,6 +40,58 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _reject_constant(value: str) -> None:
     raise ValueError(f"Invalid JSON constant: {value}")
+
+class RetryableProcessingReadError(RuntimeError):
+    """A pinned S3 input could not be read before processing started."""
+
+
+def read_pinned_input(
+    client: Any,
+    reference: S3ObjectReference,
+    *,
+    owner: str,
+    limit: int,
+    label: str,
+    size_error: str,
+) -> bytes:
+    try:
+        response = client.get_object(
+            Bucket=reference.bucket_name,
+            Key=reference.object_key,
+            VersionId=reference.version_id,
+            ExpectedBucketOwner=owner,
+        )
+        body = response["Body"]
+        try:
+            if response.get("VersionId") != reference.version_id:
+                raise ProcessingInputError(f"{label} object version does not match")
+            raw = body.read(limit + 1)
+        finally:
+            body.close()
+    except ClientError as error:
+        code = error.response.get("Error", {}).get("Code")
+        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in {"NoSuchKey", "NoSuchVersion"}:
+            raise ProcessingInputError(f"{label} pinned version is missing") from error
+        if (
+            code in {"SlowDown", "RequestTimeout", "Throttling", "ThrottlingException"}
+            or status in {429, 500, 502, 503, 504}
+        ):
+            raise RetryableProcessingReadError(f"{label} read failed") from error
+        raise
+    except (
+        BotocoreConnectionError,
+        HTTPClientError,
+        IncompleteReadError,
+        TimeoutError,
+    ) as error:
+        raise RetryableProcessingReadError(f"{label} read failed") from error
+
+    if len(raw) > limit:
+        raise ProcessingInputError(size_error)
+    if hashlib.sha256(raw).hexdigest() != reference.sha256:
+        raise ProcessingInputError(f"{label} checksum does not match")
+    return raw
 
 
 class S3ProcessingInputVerifier:
@@ -174,24 +232,14 @@ class S3ProcessingInputVerifier:
         limit: int,
         label: str,
     ) -> dict[str, Any]:
-        response = self._client.get_object(
-            Bucket=reference.bucket_name,
-            Key=reference.object_key,
-            VersionId=reference.version_id,
-            ExpectedBucketOwner=owner,
+        raw = read_pinned_input(
+            self._client,
+            reference,
+            owner=owner,
+            limit=limit,
+            label=label,
+            size_error=f"{label} exceeds its size limit",
         )
-        body = response["Body"]
-        try:
-            if response.get("VersionId") != reference.version_id:
-                raise ProcessingInputError(f"{label} object version does not match")
-            raw = body.read(limit + 1)
-            if len(raw) > limit:
-                raise ProcessingInputError(f"{label} exceeds its size limit")
-        finally:
-            body.close()
-
-        if hashlib.sha256(raw).hexdigest() != reference.sha256:
-            raise ProcessingInputError(f"{label} checksum does not match")
 
         try:
             document = json.loads(

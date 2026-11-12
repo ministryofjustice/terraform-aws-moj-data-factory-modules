@@ -1,6 +1,8 @@
 import json
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from typing import Any, Protocol
+from uuid import uuid4
 
 from botocore.exceptions import ClientError
 
@@ -19,7 +21,7 @@ class CommitTarget(Protocol):
         request_fingerprint: str,
         request: Mapping[str, Any],
     ) -> ProcessingCompletion | None:
-        """Commit work and return durable evidence or None while pending."""
+        """Commit or resume the same operation and return durable evidence."""
 
     def lookup(
         self,
@@ -31,6 +33,13 @@ class CommitTarget(Protocol):
         """Read committed evidence without performing the external write."""
 
 
+def _conditional_check_failed(error: ClientError) -> bool:
+    return (
+        error.response.get("Error", {}).get("Code")
+        == "ConditionalCheckFailedException"
+    )
+
+
 class DownstreamCommitAdapter:
     def __init__(
         self,
@@ -38,6 +47,8 @@ class DownstreamCommitAdapter:
         table: Any,
         target: CommitTarget,
         component: str,
+        lease_seconds: int = 120,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         if component == "raw_history":
             required_fields = ("commit_id", "history_location")
@@ -46,10 +57,15 @@ class DownstreamCommitAdapter:
         else:
             raise ValueError("Expected raw_history or publication")
 
+        if type(lease_seconds) is not int or lease_seconds <= 0:
+            raise ValueError("lease_seconds must be a positive integer")
+
         self._table = table
         self._target = target
         self._component = component
         self._required_fields = required_fields
+        self._lease_seconds = lease_seconds
+        self._clock = clock
 
     def submit(
         self,
@@ -80,9 +96,7 @@ class DownstreamCommitAdapter:
                 ConditionExpression="attribute_not_exists(operation_id)",
             )
         except ClientError as error:
-            if error.response.get("Error", {}).get("Code") != (
-                "ConditionalCheckFailedException"
-            ):
+            if not _conditional_check_failed(error):
                 raise
 
             existing = self._read(operation_id)
@@ -93,9 +107,27 @@ class DownstreamCommitAdapter:
                     f"{self._component} operation {operation_id} has different inputs"
                 ) from error
 
-            return self._invoke(existing, recover=True)
+            completion = self._invoke(existing, recover=True)
+            if completion is not None:
+                return completion
 
-        return self._invoke(intent, recover=False)
+        claim_token = self._claim(intent)
+        if claim_token is None:
+            return None
+
+        try:
+            completion = self._invoke(intent, recover=True)
+            if completion is None:
+                completion = self._invoke(intent, recover=False)
+        except Exception as error:
+            try:
+                self._release(operation_id, claim_token)
+            except ClientError as release_error:
+                error.add_note(f"Could not release commit claim: {release_error}")
+            raise
+
+        self._release(operation_id, claim_token)
+        return completion
 
     def lookup(self, *, operation_id: str) -> ProcessingCompletion | None:
         intent = self._read(operation_id)
@@ -112,6 +144,50 @@ class DownstreamCommitAdapter:
             Key={"operation_id": operation_id},
             ConsistentRead=True,
         ).get("Item")
+
+    def _claim(self, intent: Mapping[str, Any]) -> str | None:
+        now = int(self._clock())
+        claim_token = uuid4().hex
+        try:
+            self._table.update_item(
+                Key={"operation_id": intent["operation_id"]},
+                UpdateExpression=(
+                    "SET commit_claim_token = :token, "
+                    "commit_claim_expires_at = :expires_at"
+                ),
+                ConditionExpression=(
+                    "component = :component AND "
+                    "request_fingerprint = :fingerprint AND "
+                    "request_json = :request_json AND "
+                    "(attribute_not_exists(commit_claim_token) OR "
+                    "commit_claim_expires_at <= :now)"
+                ),
+                ExpressionAttributeValues={
+                    ":token": claim_token,
+                    ":expires_at": now + self._lease_seconds,
+                    ":component": intent["component"],
+                    ":fingerprint": intent["request_fingerprint"],
+                    ":request_json": intent["request_json"],
+                    ":now": now,
+                },
+            )
+        except ClientError as error:
+            if not _conditional_check_failed(error):
+                raise
+            return None
+        return claim_token
+
+    def _release(self, operation_id: str, claim_token: str) -> None:
+        try:
+            self._table.update_item(
+                Key={"operation_id": operation_id},
+                UpdateExpression="REMOVE commit_claim_token, commit_claim_expires_at",
+                ConditionExpression="commit_claim_token = :token",
+                ExpressionAttributeValues={":token": claim_token},
+            )
+        except ClientError as error:
+            if not _conditional_check_failed(error):
+                raise
 
     def _invoke(
         self,

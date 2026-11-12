@@ -122,6 +122,7 @@ def test_missing_evidence_remains_pending_and_changed_inputs_are_rejected(table)
 def test_lookup_rejects_evidence_for_a_different_ingestion(table):
     target = Mock()
     target.commit.return_value = None
+    target.lookup.return_value = None
     adapter = DownstreamCommitAdapter(
         table=table, target=target, component="publication"
     )
