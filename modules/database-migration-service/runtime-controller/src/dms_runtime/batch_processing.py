@@ -138,6 +138,8 @@ class _BatchStage:
                     f"requires {field}"
                 )
 
+        self._validate_result(request, completion.result_reference)
+
         return self._progress.record_stage(
             claim,
             stage=self.stage,
@@ -150,6 +152,13 @@ class _BatchStage:
                 "request_fingerprint": request_fingerprint,
             },
         )
+
+    def _validate_result(
+        self,
+        request: Mapping[str, Any],
+        reference: Mapping[str, str],
+    ) -> None:
+        """Allow a stage to verify its evidence before recording success."""
 
     def _build_request(self, ingestion_id: str) -> dict[str, Any]:
         inputs = self._downstream.load_inputs(ingestion_id)
@@ -209,7 +218,15 @@ class BatchPublication(_BatchStage):
         )
         history = prerequisites["HISTORY_BASELINE"]
 
-        for field in ("commit_id", "history_location"):
+        history_fields = (
+            "commit_id",
+            "history_location",
+            "bucket_name",
+            "object_key",
+            "version_id",
+            "sha256",
+        )
+        for field in history_fields:
             if not history.get(field, "").strip():
                 raise ProgressConflict(
                     f"Ingestion {ingestion_id}: HISTORY_BASELINE "
@@ -223,4 +240,33 @@ class BatchPublication(_BatchStage):
             "contract": dict(inputs.contract),
             "history_commit_id": history["commit_id"],
             "history_location": history["history_location"],
+            "history_commit": {
+                "bucket_name": history["bucket_name"],
+                "object_key": history["object_key"],
+                "version_id": history["version_id"],
+                "sha256": history["sha256"],
+            },
+        }
+
+class BatchReconciliation(_BatchStage):
+    """Reconcile the completed Processing and Raw History results."""
+
+    stage = "RECONCILIATION"
+    operation_kind = "reconciliation-operation"
+    update_prefix = "reconciliation"
+    required_result_fields = ("check_id",)
+
+    def _build_request(self, ingestion_id: str) -> dict[str, Any]:
+        prerequisites = self._downstream.publication_prerequisites(
+            ingestion_id,
+            reconciliation_required=False,
+        )
+        inputs = self._downstream.load_inputs(ingestion_id)
+        return {
+            "ingestion_id": ingestion_id,
+            "deployment": dict(inputs.deployment),
+            "contract": dict(inputs.contract),
+            "raw_batch": asdict(inputs.raw_batch),
+            "processing_result": prerequisites["PROCESSING"],
+            "history_result": prerequisites["HISTORY_BASELINE"],
         }

@@ -12,7 +12,14 @@ from dms_runtime.batch_processing import (
     BatchProcessing,
     BatchPublication,
     BatchRawHistory,
+    BatchReconciliation,
     ProcessingAdapter,
+)
+from dms_runtime.cdc_drain import CdcDrain
+from dms_runtime.cdc_readiness import CdcReadiness
+from dms_runtime.cdc_shutdown_actions import (
+    CdcConsumerStop,
+    CdcHistoryFinalisation,
 )
 from dms_runtime.lookup import PinnedRuntimeLookup
 from dms_runtime.ownership import RuntimeContext
@@ -90,6 +97,21 @@ def build_handler(
     *,
     session: Any,
     adapter_factories: Mapping[str, AdapterFactory] | None = None,
+    reconciliation_factory: (
+        Callable[[BatchDownstream, IngestionProgress], BatchReconciliation]
+        | None
+    ) = None,
+    cdc_readiness_factory: (
+        Callable[[PinnedRuntimeLookup, IngestionProgress], CdcReadiness] | None
+    ) = None,
+    cdc_drain_factory: Callable[[IngestionProgress], CdcDrain] | None = None,
+    cdc_consumer_stop_factory: (
+        Callable[[BatchDownstream, IngestionProgress], CdcConsumerStop] | None
+    ) = None,
+    cdc_history_finalisation_factory: (
+        Callable[[BatchDownstream, IngestionProgress], CdcHistoryFinalisation]
+        | None
+    ) = None,
 ) -> Callable[[Any, Any], dict[str, str | int]]:
     context = RuntimeContext(
         environment=_required(environment, "RUNTIME_ENVIRONMENT"),
@@ -98,10 +120,12 @@ def build_handler(
         source=_required(environment, "RUNTIME_SOURCE"),
         database_name=_required(environment, "RUNTIME_DATABASE_NAME"),
     )
-    reconciliation = _required(environment, "BATCH_RECONCILIATION_REQUIRED")
-    if reconciliation not in {"true", "false"}:
+    reconciliation_setting = _required(
+        environment, "BATCH_RECONCILIATION_REQUIRED"
+    )
+    if reconciliation_setting not in {"true", "false"}:
         raise ValueError("BATCH_RECONCILIATION_REQUIRED must be true or false")
-    reconciliation_required = reconciliation == "true"
+    reconciliation_required = reconciliation_setting == "true"
 
     registry = IngestionRegistry(
         session.client("dynamodb", region_name=context.region),
@@ -130,12 +154,39 @@ def build_handler(
             reconciliation_required=reconciliation_required,
         )
 
+    downstream = BatchDownstream(
+        resolve_deployment=lookup.resolve,
+        read_stage=progress.read_stage,
+    )
+    reconciliation = None
+    if reconciliation_required and reconciliation_factory is not None:
+        reconciliation = reconciliation_factory(downstream, progress)
+
     handler = BatchHandler(
         processing=stage("processing", BatchProcessing),
         raw_history=stage("raw_history", BatchRawHistory),
         publication=stage("publication", BatchPublication),
         lifecycle=IngestionLifecycle(progress),
         reconciliation_required=reconciliation_required,
+        reconciliation=reconciliation,
+        cdc_readiness=(
+            cdc_readiness_factory(lookup, progress)
+            if cdc_readiness_factory is not None
+            else None
+        ),
+        cdc_drain=(
+            cdc_drain_factory(progress) if cdc_drain_factory is not None else None
+        ),
+        cdc_consumer_stop=(
+            cdc_consumer_stop_factory(downstream, progress)
+            if cdc_consumer_stop_factory is not None
+            else None
+        ),
+        cdc_history_finalisation=(
+            cdc_history_finalisation_factory(downstream, progress)
+            if cdc_history_finalisation_factory is not None
+            else None
+        ),
     )
     return build_batch_entry_point(
         handler=handler,

@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from dms_runtime import batch_bootstrap, batch_lambda_function
+from ingestion_registry.ownership import OwnershipLost
 
 @pytest.fixture
 def bootstrap_setup(monkeypatch):
@@ -110,3 +111,106 @@ def test_bootstrap_rejects_missing_adapter_before_reserving_stage(
 
     lookup.resolve.assert_called_once_with("ingestion-one")
     progress.record_stage.assert_not_called()
+
+def test_bootstrap_dispatches_configured_reconciliation(bootstrap_setup):
+    environment, event, lookup, progress, _ = bootstrap_setup
+    environment = {**environment, "BATCH_RECONCILIATION_REQUIRED": "true"}
+    event = {**event, "action": "advance_reconciliation"}
+
+    reconciliation = Mock()
+    reconciliation.advance.return_value = {
+        "stage": "RECONCILIATION",
+        "status": "RUNNING",
+    }
+    factory = Mock(return_value=reconciliation)
+
+    handler = batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+        reconciliation_factory=factory,
+    )
+
+    assert handler(event, None) == {
+        "ingestion_id": event["ingestion_id"],
+        "stage": "RECONCILIATION",
+        "status": "RUNNING",
+    }
+    factory.assert_called_once()
+    assert factory.call_args.args[1] is progress
+    lookup.resolve.assert_called_once_with(event["ingestion_id"])
+    reconciliation.advance.assert_called_once()
+    assert reconciliation.advance.call_args.args[0].ingestion_id == (
+        event["ingestion_id"]
+    )
+
+@pytest.mark.parametrize(
+    ("action", "stage", "factory_name"),
+    [
+        ("advance_cdc_readiness", "CDC_CONSUMER", "cdc_readiness_factory"),
+        ("advance_cdc_drain", "CDC_DRAINED", "cdc_drain_factory"),
+    ],
+)
+def test_bootstrap_dispatches_only_the_requested_cdc_operation(
+    bootstrap_setup,
+    action,
+    stage,
+    factory_name,
+):
+    environment, event, lookup, progress, _ = bootstrap_setup
+    event = {**event, "action": action}
+    operation = Mock()
+    operation.advance.return_value = {"stage": stage, "status": "RUNNING"}
+    factory = Mock(return_value=operation)
+
+    handler = batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+        **{factory_name: factory},
+    )
+
+    assert handler(event, None) == {
+        "ingestion_id": event["ingestion_id"],
+        "stage": stage,
+        "status": "RUNNING",
+    }
+    factory.assert_called_once()
+    assert factory.call_args.args[-1] is progress
+    lookup.resolve.assert_called_once_with(event["ingestion_id"])
+    operation.advance.assert_called_once()
+    assert operation.advance.call_args.args[0].ingestion_id == (
+        event["ingestion_id"]
+    )
+
+
+@pytest.mark.parametrize(
+    "action",
+    ["advance_cdc_readiness", "advance_cdc_drain"],
+)
+def test_bootstrap_rejects_wrong_owner_before_cdc_dispatch(
+    bootstrap_setup,
+    action,
+):
+    environment, event, lookup, _, _ = bootstrap_setup
+    event = {
+        **event,
+        "action": action,
+        "ingestion_owner": {
+            **event["ingestion_owner"],
+            "fencing_token": event["ingestion_owner"]["fencing_token"] + 1,
+        },
+    }
+    readiness = Mock()
+    drain = Mock()
+    handler = batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+        cdc_readiness_factory=Mock(return_value=readiness),
+        cdc_drain_factory=Mock(return_value=drain),
+    )
+
+    with pytest.raises(OwnershipLost, match="expired or superseded"):
+        handler(event, None)
+
+    lookup.resolve.assert_not_called()
+    readiness.advance.assert_not_called()
+    drain.advance.assert_not_called()

@@ -332,9 +332,13 @@ def test_publication_waits_for_processing_and_recovers_lost_response(
         update_id="history-baseline-complete",
         expected_revision=0,
         result_reference={
-            "kind": "history-commit",
-            "commit_id": "baseline-commit-one",
+            "kind": "raw-history-commit",
+            "commit_id": "d" * 64,
             "history_location": history_location,
+            "bucket_name": "example-history",
+            "object_key": "history/commits/operation-one/result.json",
+            "version_id": "history-commit-version-one",
+            "sha256": "d" * 64,
         },
     )
 
@@ -368,7 +372,13 @@ def test_publication_waits_for_processing_and_recovers_lost_response(
 
     def submit(*, operation_id, request_fingerprint, request):
         assert request["history_location"] == history_location
-        assert request["history_commit_id"] == "baseline-commit-one"
+        assert request["history_commit_id"] == "d" * 64
+        assert request["history_commit"] == {
+            "bucket_name": "example-history",
+            "object_key": "history/commits/operation-one/result.json",
+            "version_id": "history-commit-version-one",
+            "sha256": "d" * 64,
+        }
         assert request["contract"]["contract_object_version_id"] == (
             "contract-version-one"
         )

@@ -23,6 +23,7 @@ from ingestion_registry.references import S3ObjectReference
 SHUTDOWN_STAGES = (
     "SOURCE_STOPPED",
     "CDC_DRAINED",
+    "CDC_CONSUMER_STOPPED",
     "HISTORY_FINALIZED",
 )
 

@@ -30,6 +30,7 @@ STAGES = frozenset(
         "HISTORY_CDC",
         "SOURCE_STOPPED",
         "CDC_DRAINED",
+        "CDC_CONSUMER_STOPPED",
         "HISTORY_FINALIZED",
     }
 )

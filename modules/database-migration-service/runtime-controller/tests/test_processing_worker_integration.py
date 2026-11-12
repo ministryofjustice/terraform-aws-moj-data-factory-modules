@@ -35,9 +35,14 @@ def test_recovers_written_result_without_executing_processing_again(
         "Account"
     ]
 
+    verified_inputs = Mock()
+    verifier = Mock()
+    verifier.verify.return_value = verified_inputs
+
     def build_worker(executor):
         return ProcessingWorker(
             component=component,
+            verifier=verifier,
             executor=executor,
             results=S3ProcessingResultStore(
                 s3,
@@ -94,8 +99,11 @@ def test_recovers_written_result_without_executing_processing_again(
     executor.execute.assert_called_once_with(
         operation_id=OPERATION_ID,
         request=request,
+        inputs=verified_inputs,
     )
+    verifier.verify.assert_called_once_with(request)
     recovery_executor.execute.assert_not_called()
+
 
 @pytest.mark.parametrize(
     "write_conflicting_evidence",
@@ -134,8 +142,10 @@ def test_recovery_requires_evidence_for_the_pinned_request(
         expected_bucket_owner=account_id,
     )
     executor = Mock()
+    verifier = Mock()
     worker = ProcessingWorker(
         component=component,
+        verifier=verifier,
         executor=executor,
         results=results,
     )
@@ -166,6 +176,7 @@ def test_recovery_requires_evidence_for_the_pinned_request(
         complete.assert_not_called()
 
     executor.execute.assert_not_called()
+    verifier.verify.assert_not_called()
     status = component.handle(
         {
             "request_version": 1,
