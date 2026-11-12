@@ -193,8 +193,8 @@ def test_recovery_requires_evidence_for_the_pinned_request(
 
 @pytest.mark.parametrize(
     "error_code",
-    ["SlowDown", "NoSuchVersion"],
-    ids=["retryable-read", "missing-pinned-version"],
+    ["SlowDown", "AccessDenied", "NoSuchVersion"],
+    ids=["retryable-read", "permissions-repaired", "missing-pinned-version"],
 )
 def test_processing_dispatch_handles_pinned_read_failure(
     component_setup,

@@ -5,13 +5,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from ingestion_registry.references import S3ObjectReference
 from botocore.exceptions import (
     ClientError,
     ConnectionError as BotocoreConnectionError,
     HTTPClientError,
     IncompleteReadError,
 )
+
+from ingestion_registry.references import S3ObjectReference
 
 
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -20,6 +21,10 @@ MAX_CONTRACT_BYTES = 1024 * 1024
 
 class ProcessingInputError(ValueError):
     """Pinned inputs cannot be used for this Processing operation."""
+
+
+class RetryableProcessingReadError(RuntimeError):
+    """A pinned S3 input could not be read before processing started."""
 
 
 @dataclass(frozen=True)
@@ -40,9 +45,6 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def _reject_constant(value: str) -> None:
     raise ValueError(f"Invalid JSON constant: {value}")
-
-class RetryableProcessingReadError(RuntimeError):
-    """A pinned S3 input could not be read before processing started."""
 
 
 def read_pinned_input(
@@ -70,15 +72,14 @@ def read_pinned_input(
             body.close()
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code")
-        status = error.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
         if code in {"NoSuchKey", "NoSuchVersion"}:
-            raise ProcessingInputError(f"{label} pinned version is missing") from error
-        if (
-            code in {"SlowDown", "RequestTimeout", "Throttling", "ThrottlingException"}
-            or status in {429, 500, 502, 503, 504}
-        ):
-            raise RetryableProcessingReadError(f"{label} read failed") from error
-        raise
+            raise ProcessingInputError(
+                f"{label} pinned version is missing"
+            ) from error
+
+        raise RetryableProcessingReadError(
+            f"{label} read failed ({code or 'unknown S3 error'})"
+        ) from error
     except (
         BotocoreConnectionError,
         HTTPClientError,

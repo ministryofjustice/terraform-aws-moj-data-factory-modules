@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from dms_runtime.batch_downstream import BatchPrerequisiteMissing
-from dms_runtime.batch_processing import ProcessingCompletion
+from dms_runtime.batch_processing import BatchReconciliation, ProcessingCompletion
 from dms_runtime.cdc_shutdown_actions import (
     CdcConsumerStop,
     CdcHistoryFinalisation,
@@ -134,3 +134,96 @@ def test_shutdown_action_recovers_without_resubmitting(
     assert restarted.advance(claim) == stages[stage]
     adapter.submit.assert_called_once()
     assert adapter.lookup.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("stage_type", "prerequisite"),
+    [
+        (BatchReconciliation, None),
+        (CdcConsumerStop, "CDC_DRAINED"),
+        (CdcHistoryFinalisation, "CDC_CONSUMER_STOPPED"),
+    ],
+)
+@pytest.mark.parametrize(
+    "accepted_before_timeout",
+    [False, True],
+    ids=["interrupted-before-acceptance", "response-lost-after-acceptance"],
+)
+def test_reserved_operation_recovers_without_starting_work_twice(
+    monkeypatch,
+    shutdown_setup,
+    stage_type,
+    prerequisite,
+    accepted_before_timeout,
+):
+    stages, claim, build = shutdown_setup
+    if prerequisite is not None:
+        stages[prerequisite] = {
+            "status": "SUCCEEDED",
+            "revision": 1,
+            "result_reference": evidence(prerequisite),
+        }
+
+    adapter = Mock()
+    adapter.lookup.return_value = None
+    accepted = {}
+    starts = Mock()
+
+    def submit(*, operation_id, request_fingerprint, request):
+        first_call = adapter.submit.call_count == 1
+        if first_call and not accepted_before_timeout:
+            raise TimeoutError("submission interrupted")
+
+        if operation_id not in accepted:
+            starts(operation_id)
+            accepted[operation_id] = (request_fingerprint, request)
+        assert accepted[operation_id] == (request_fingerprint, request)
+
+        if first_call:
+            raise TimeoutError("submission interrupted")
+        return None
+
+    adapter.submit.side_effect = submit
+
+    if stage_type is BatchReconciliation:
+        # Isolate reservation recovery from the reconciliation prerequisites.
+        monkeypatch.setattr(
+            BatchReconciliation,
+            "_build_request",
+            lambda self, ingestion_id: {"ingestion_id": ingestion_id},
+        )
+
+    stage = build(stage_type, adapter)
+    with pytest.raises(TimeoutError, match="submission interrupted"):
+        stage.advance(claim)
+
+    pending = stages[stage.stage]
+    assert pending["status"] == "RUNNING"
+    reservation = pending["result_reference"]
+    operation_id = reservation["operation_id"]
+    fingerprint = reservation["request_fingerprint"]
+    assert (operation_id in accepted) is accepted_before_timeout
+
+    restarted = build(stage_type, adapter)
+    assert restarted.advance(claim) == pending
+    assert adapter.submit.call_count == 2
+    assert adapter.submit.call_args_list[0] == adapter.submit.call_args_list[1]
+    starts.assert_called_once_with(operation_id)
+
+    if stage_type is BatchReconciliation:
+        completion_evidence = {"check_id": "check-one"}
+    else:
+        completion_evidence = evidence(stage.stage)
+
+    adapter.lookup.return_value = ProcessingCompletion(
+        operation_id=operation_id,
+        ingestion_id=claim.ingestion_id,
+        request_fingerprint=fingerprint,
+        result_reference=completion_evidence,
+    )
+
+    completed = restarted.advance(claim)
+    assert completed["status"] == "SUCCEEDED"
+    assert completed["result_reference"]["operation_id"] == operation_id
+    assert completed["result_reference"]["request_fingerprint"] == fingerprint
+    assert adapter.submit.call_count == 2

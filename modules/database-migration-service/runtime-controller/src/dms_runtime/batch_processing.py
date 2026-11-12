@@ -26,7 +26,12 @@ class ProcessingAdapter(Protocol):
         request_fingerprint: str,
         request: Mapping[str, Any],
     ) -> ProcessingCompletion | None:
-        """Return verified completion, or None when work is still pending."""
+        """Ensure the pinned operation is accepted and return verified completion.
+
+        Accept an operation that is absent. Reuse an identical accepted
+        operation without starting another side effect. Reject conflicting
+        inputs and return None while completion is pending.
+        """
 
     def lookup(
         self,
@@ -52,7 +57,6 @@ class _BatchStage:
     operation_kind: str
     update_prefix: str
     required_result_fields: tuple[str, ...] = ()
-    resubmit_on_missing_completion = False
 
     def __init__(
         self,
@@ -101,11 +105,7 @@ class _BatchStage:
                 expected_revision=0,
                 result_reference=reservation,
             )
-            completion = self._adapter.submit(
-                operation_id=operation_id,
-                request_fingerprint=request_fingerprint,
-                request=request,
-            )
+            completion = None
         else:
             if current.get("result_reference") != reservation:
                 raise ProgressConflict(
@@ -114,12 +114,13 @@ class _BatchStage:
                 )
 
             completion = self._adapter.lookup(operation_id=operation_id)
-            if completion is None and self.resubmit_on_missing_completion:
-                completion = self._adapter.submit(
-                    operation_id=operation_id,
-                    request_fingerprint=request_fingerprint,
-                    request=request,
-                )
+
+        if completion is None:
+            completion = self._adapter.submit(
+                operation_id=operation_id,
+                request_fingerprint=request_fingerprint,
+                request=request,
+            )
 
         if completion is None:
             return current
@@ -186,7 +187,6 @@ class BatchRawHistory(_BatchStage):
     operation_kind = "raw-history-operation"
     update_prefix = "raw-history"
     required_result_fields = ("commit_id", "history_location")
-    resubmit_on_missing_completion = True
 
 
 class BatchPublication(_BatchStage):
@@ -194,7 +194,6 @@ class BatchPublication(_BatchStage):
     operation_kind = "publication-operation"
     update_prefix = "publication"
     required_result_fields = ("glue_database", "glue_table")
-    resubmit_on_missing_completion = True
 
     def __init__(
         self,
