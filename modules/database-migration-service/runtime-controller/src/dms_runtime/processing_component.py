@@ -191,6 +191,18 @@ class ProcessingComponent:
 
         return worker_token, json.loads(result["Attributes"]["request_json"])
 
+    def read_running_work(
+        self,
+        operation_id: str,
+    ) -> tuple[str, dict[str, Any]] | None:
+        """Read the claim and pinned request for internal result recovery."""
+        _require_digest(operation_id, "operation_id")
+        item = self._read(operation_id)
+        if item is None or item["status"] != "RUNNING":
+            return None
+
+        return item["worker_token"], json.loads(item["request_json"])
+
     def complete(
         self,
         operation_id: str,
