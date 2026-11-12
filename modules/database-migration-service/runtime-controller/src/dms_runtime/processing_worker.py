@@ -2,7 +2,20 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from dms_runtime.processing_component import ProcessingComponent
+from dms_runtime.processing_inputs import (
+    ProcessingInputError,
+    RetryableProcessingReadError,
+    VerifiedProcessingInputs,
+)
 from ingestion_registry.references import S3ObjectReference
+
+
+class ProcessingInputVerifier(Protocol):
+    def verify(
+        self,
+        request: Mapping[str, Any],
+    ) -> VerifiedProcessingInputs:
+        """Verify the pinned manifest and contract for the request."""
 
 
 class ProcessingExecutor(Protocol):
@@ -11,8 +24,9 @@ class ProcessingExecutor(Protocol):
         *,
         operation_id: str,
         request: Mapping[str, Any],
+        inputs: VerifiedProcessingInputs,
     ) -> Mapping[str, Any]:
-        """Process the pinned inputs and return evidence of the output."""
+        """Process the exact verified input references and return output evidence."""
 
 
 class ProcessingResultStore(Protocol):
@@ -41,10 +55,12 @@ class ProcessingWorker:
         self,
         *,
         component: ProcessingComponent,
+        verifier: ProcessingInputVerifier,
         executor: ProcessingExecutor,
         results: ProcessingResultStore,
     ) -> None:
         self._component = component
+        self._verifier = verifier
         self._executor = executor
         self._results = results
 
@@ -54,10 +70,24 @@ class ProcessingWorker:
             return None
 
         worker_token, request = claimed
-        output = self._executor.execute(
-            operation_id=operation_id,
-            request=request,
-        )
+        try:
+            inputs = self._verifier.verify(request)
+            output = self._executor.execute(
+                operation_id=operation_id,
+                request=request,
+                inputs=inputs,
+            )
+        except RetryableProcessingReadError:
+            self._component.requeue(operation_id, worker_token=worker_token)
+            raise
+        except ProcessingInputError:
+            self._component.fail(
+                operation_id,
+                worker_token=worker_token,
+                failure_code="INVALID_PINNED_INPUT",
+            )
+            raise
+
         result = self._results.write(
             operation_id=operation_id,
             worker_token=worker_token,

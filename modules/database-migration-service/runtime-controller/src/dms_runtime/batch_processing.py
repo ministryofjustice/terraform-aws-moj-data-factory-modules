@@ -26,7 +26,12 @@ class ProcessingAdapter(Protocol):
         request_fingerprint: str,
         request: Mapping[str, Any],
     ) -> ProcessingCompletion | None:
-        """Return verified completion, or None when work is still pending."""
+        """Ensure the pinned operation is accepted and return verified completion.
+
+        Accept an operation that is absent. Reuse an identical accepted
+        operation without starting another side effect. Reject conflicting
+        inputs and return None while completion is pending.
+        """
 
     def lookup(
         self,
@@ -48,8 +53,6 @@ def _fingerprint(value: Mapping[str, Any]) -> str:
 
 
 class _BatchStage:
-    """Submit or recover one downstream stage for an ingestion."""
-
     stage: str
     operation_kind: str
     update_prefix: str
@@ -102,11 +105,7 @@ class _BatchStage:
                 expected_revision=0,
                 result_reference=reservation,
             )
-            completion = self._adapter.submit(
-                operation_id=operation_id,
-                request_fingerprint=request_fingerprint,
-                request=request,
-            )
+            completion = None
         else:
             if current.get("result_reference") != reservation:
                 raise ProgressConflict(
@@ -115,6 +114,13 @@ class _BatchStage:
                 )
 
             completion = self._adapter.lookup(operation_id=operation_id)
+
+        if completion is None:
+            completion = self._adapter.submit(
+                operation_id=operation_id,
+                request_fingerprint=request_fingerprint,
+                request=request,
+            )
 
         if completion is None:
             return current
@@ -138,6 +144,8 @@ class _BatchStage:
                     f"requires {field}"
                 )
 
+        self._validate_result(request, completion.result_reference)
+
         return self._progress.record_stage(
             claim,
             stage=self.stage,
@@ -151,6 +159,13 @@ class _BatchStage:
             },
         )
 
+    def _validate_result(
+        self,
+        request: Mapping[str, Any],
+        reference: Mapping[str, str],
+    ) -> None:
+        """Allow a stage to verify its evidence before recording success."""
+
     def _build_request(self, ingestion_id: str) -> dict[str, Any]:
         inputs = self._downstream.load_inputs(ingestion_id)
         return {
@@ -162,24 +177,19 @@ class _BatchStage:
 
 
 class BatchProcessing(_BatchStage):
-    """Advance the Processing stage for the completed Raw batch."""
-
     stage = "PROCESSING"
     operation_kind = "processing-operation"
     update_prefix = "processing"
 
 
 class BatchRawHistory(_BatchStage):
-    """Advance the Raw History baseline for the completed Raw batch."""
-
     stage = "HISTORY_BASELINE"
     operation_kind = "raw-history-operation"
     update_prefix = "raw-history"
     required_result_fields = ("commit_id", "history_location")
 
-class BatchPublication(_BatchStage):
-    """Publish the committed Raw History baseline for an ingestion."""
 
+class BatchPublication(_BatchStage):
     stage = "PUBLICATION"
     operation_kind = "publication-operation"
     update_prefix = "publication"
@@ -209,7 +219,15 @@ class BatchPublication(_BatchStage):
         )
         history = prerequisites["HISTORY_BASELINE"]
 
-        for field in ("commit_id", "history_location"):
+        history_fields = (
+            "commit_id",
+            "history_location",
+            "bucket_name",
+            "object_key",
+            "version_id",
+            "sha256",
+        )
+        for field in history_fields:
             if not history.get(field, "").strip():
                 raise ProgressConflict(
                     f"Ingestion {ingestion_id}: HISTORY_BASELINE "
@@ -223,4 +241,32 @@ class BatchPublication(_BatchStage):
             "contract": dict(inputs.contract),
             "history_commit_id": history["commit_id"],
             "history_location": history["history_location"],
+            "history_commit": {
+                "bucket_name": history["bucket_name"],
+                "object_key": history["object_key"],
+                "version_id": history["version_id"],
+                "sha256": history["sha256"],
+            },
+        }
+
+
+class BatchReconciliation(_BatchStage):
+    stage = "RECONCILIATION"
+    operation_kind = "reconciliation-operation"
+    update_prefix = "reconciliation"
+    required_result_fields = ("check_id",)
+
+    def _build_request(self, ingestion_id: str) -> dict[str, Any]:
+        prerequisites = self._downstream.publication_prerequisites(
+            ingestion_id,
+            reconciliation_required=False,
+        )
+        inputs = self._downstream.load_inputs(ingestion_id)
+        return {
+            "ingestion_id": ingestion_id,
+            "deployment": dict(inputs.deployment),
+            "contract": dict(inputs.contract),
+            "raw_batch": asdict(inputs.raw_batch),
+            "processing_result": prerequisites["PROCESSING"],
+            "history_result": prerequisites["HISTORY_BASELINE"],
         }

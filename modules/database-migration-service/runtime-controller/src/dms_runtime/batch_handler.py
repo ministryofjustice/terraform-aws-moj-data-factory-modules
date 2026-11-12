@@ -1,18 +1,24 @@
 from collections.abc import Mapping
 from typing import Any
 
+from dms_runtime.batch_downstream import BatchPrerequisiteMissing
 from dms_runtime.batch_processing import (
     BatchProcessing,
     BatchPublication,
     BatchRawHistory,
+    BatchReconciliation,
 )
+from dms_runtime.cdc_drain import CdcDrain
+from dms_runtime.cdc_readiness import CdcReadiness
 from ingestion_registry.lifecycle import IngestionLifecycle
 from ingestion_registry.ownership import OwnershipClaim
+from dms_runtime.cdc_shutdown_actions import (
+    CdcConsumerStop,
+    CdcHistoryFinalisation,
+)
 
 
 class BatchHandler:
-    """Advance one downstream action for an owned ingestion."""
-
     def __init__(
         self,
         *,
@@ -21,6 +27,11 @@ class BatchHandler:
         publication: BatchPublication,
         lifecycle: IngestionLifecycle,
         reconciliation_required: bool,
+        reconciliation: BatchReconciliation | None = None,
+        cdc_readiness: CdcReadiness | None = None,
+        cdc_drain: CdcDrain | None = None,
+        cdc_consumer_stop: CdcConsumerStop | None = None,
+        cdc_history_finalisation: CdcHistoryFinalisation | None = None,
     ) -> None:
         if not isinstance(reconciliation_required, bool):
             raise ValueError("reconciliation_required must be a boolean")
@@ -30,8 +41,15 @@ class BatchHandler:
             "advance_raw_history": raw_history.advance,
             "advance_publication": publication.advance,
         }
+        self._cdc_actions = {
+            "advance_cdc_readiness": cdc_readiness,
+            "advance_cdc_drain": cdc_drain,
+            "advance_cdc_consumer_stop": cdc_consumer_stop,
+            "advance_cdc_history_finalisation": cdc_history_finalisation,
+        }
         self._lifecycle = lifecycle
         self._reconciliation_required = reconciliation_required
+        self._reconciliation = reconciliation
 
     def handle(
         self,
@@ -71,9 +89,30 @@ class BatchHandler:
                 "status": "SUCCEEDED",
             }
 
-        advance = self._stage_actions.get(action)
-        if advance is None:
-            raise ValueError(f"Unsupported batch action: {action!r}")
+        if action == "advance_reconciliation":
+            if not self._reconciliation_required:
+                return {
+                    "ingestion_id": ingestion_id,
+                    "stage": "RECONCILIATION",
+                    "status": "NOT_REQUIRED",
+                }
+            if self._reconciliation is None:
+                raise BatchPrerequisiteMissing(
+                    f"Ingestion {ingestion_id}: required reconciliation "
+                    "adapter is unavailable"
+                )
+            advance = self._reconciliation.advance
+        elif action in self._cdc_actions:
+            operation = self._cdc_actions[action]
+            if operation is None:
+                raise BatchPrerequisiteMissing(
+                    f"Ingestion {ingestion_id}: {action} is not configured"
+                )
+            advance = operation.advance
+        else:
+            advance = self._stage_actions.get(action)
+            if advance is None:
+                raise ValueError(f"Unsupported batch action: {action!r}")
 
         result = advance(claim)
         return {

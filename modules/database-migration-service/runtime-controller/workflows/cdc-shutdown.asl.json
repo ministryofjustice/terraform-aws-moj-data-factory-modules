@@ -1,0 +1,127 @@
+{
+  "Comment": "Finish CDC shutdown after the source-stop boundary is recorded",
+  "StartAt": "RenewBeforeShutdownRound",
+  "TimeoutSeconds": 900,
+  "States": {
+    "RenewBeforeShutdownRound": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "renew_ingestion_lease",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Next": "AdvanceDrain"
+    },
+    "AdvanceDrain": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "advance_cdc_drain",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": "$.drain",
+      "TimeoutSeconds": 60,
+      "Next": "CheckDrain"
+    },
+    "CheckDrain": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.drain.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "AdvanceConsumerStop"
+        },
+        {
+          "Variable": "$.drain.status",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForShutdown"
+        }
+      ],
+      "Default": "DrainFailed"
+    },
+    "AdvanceConsumerStop": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "advance_cdc_consumer_stop",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": "$.consumer_stop",
+      "TimeoutSeconds": 60,
+      "Next": "CheckConsumerStop"
+    },
+    "CheckConsumerStop": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.consumer_stop.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "AdvanceHistoryFinalisation"
+        },
+        {
+          "Variable": "$.consumer_stop.status",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForShutdown"
+        }
+      ],
+      "Default": "ConsumerStopFailed"
+    },
+    "AdvanceHistoryFinalisation": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "advance_cdc_history_finalisation",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": "$.history_finalisation",
+      "TimeoutSeconds": 60,
+      "Next": "CheckHistoryFinalisation"
+    },
+    "CheckHistoryFinalisation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.history_finalisation.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "ShutdownComplete"
+        },
+        {
+          "Variable": "$.history_finalisation.status",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForShutdown"
+        }
+      ],
+      "Default": "HistoryFinalisationFailed"
+    },
+    "WaitForShutdown": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "RenewBeforeShutdownRound"
+    },
+    "DrainFailed": {
+      "Type": "Fail",
+      "Error": "CdcDrainFailed"
+    },
+    "ConsumerStopFailed": {
+      "Type": "Fail",
+      "Error": "CdcConsumerStopFailed"
+    },
+    "HistoryFinalisationFailed": {
+      "Type": "Fail",
+      "Error": "CdcHistoryFinalisationFailed"
+    },
+    "ShutdownComplete": {
+      "Type": "Succeed"
+    }
+  }
+}

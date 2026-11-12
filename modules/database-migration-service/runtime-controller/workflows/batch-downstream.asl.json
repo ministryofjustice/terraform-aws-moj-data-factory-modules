@@ -33,6 +33,19 @@
       "ResultPath": "$.upstream_actions",
       "Next": "RenewBeforeUpstream"
     },
+    "RenewBeforeUpstream": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "renew_ingestion_lease",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Next": "RunUpstreamStages"
+    },
     "RunUpstreamStages": {
       "Type": "Map",
       "ItemsPath": "$.upstream_actions",
@@ -62,6 +75,134 @@
       },
       "ResultPath": "$.upstream_results",
       "Next": "CheckUpstreamStages"
+    },
+    "CheckUpstreamStages": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.upstream_results[0].status",
+              "StringEquals": "SUCCEEDED"
+            },
+            {
+              "Variable": "$.upstream_results[1].status",
+              "StringEquals": "SUCCEEDED"
+            }
+          ],
+          "Next": "RenewBeforeReconciliation"
+        },
+        {
+          "And": [
+            {
+              "Or": [
+                {
+                  "Variable": "$.upstream_results[0].status",
+                  "StringEquals": "RUNNING"
+                },
+                {
+                  "Variable": "$.upstream_results[0].status",
+                  "StringEquals": "SUCCEEDED"
+                }
+              ]
+            },
+            {
+              "Or": [
+                {
+                  "Variable": "$.upstream_results[1].status",
+                  "StringEquals": "RUNNING"
+                },
+                {
+                  "Variable": "$.upstream_results[1].status",
+                  "StringEquals": "SUCCEEDED"
+                }
+              ]
+            }
+          ],
+          "Next": "WaitForUpstreamStages"
+        }
+      ],
+      "Default": "UpstreamStageFailed"
+    },
+    "WaitForUpstreamStages": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "RenewBeforeUpstream"
+    },
+    "UpstreamStageFailed": {
+      "Type": "Fail",
+      "Error": "BatchUpstreamStageFailed",
+      "CausePath": "States.Format('Ingestion {} upstream statuses: Processing={}, Raw History={}', $.ingestion_id, $.upstream_results[0].status, $.upstream_results[1].status)"
+    },
+    "RenewBeforeReconciliation": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "renew_ingestion_lease",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Next": "AdvanceReconciliation"
+    },
+    "AdvanceReconciliation": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "advance_reconciliation",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": "$.reconciliation_result",
+      "TimeoutSeconds": 60,
+      "Next": "CheckReconciliation"
+    },
+    "CheckReconciliation": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.reconciliation_result.status",
+          "StringEquals": "SUCCEEDED",
+          "Next": "RenewBeforePublication"
+        },
+        {
+          "Variable": "$.reconciliation_result.status",
+          "StringEquals": "NOT_REQUIRED",
+          "Next": "RenewBeforePublication"
+        },
+        {
+          "Variable": "$.reconciliation_result.status",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForReconciliation"
+        }
+      ],
+      "Default": "ReconciliationFailed"
+    },
+    "WaitForReconciliation": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "RenewBeforeReconciliation"
+    },
+    "ReconciliationFailed": {
+      "Type": "Fail",
+      "Error": "BatchReconciliationFailed",
+      "CausePath": "States.Format('Reconciliation did not complete for ingestion {}', $.ingestion_id)"
+    },
+    "RenewBeforePublication": {
+      "Type": "Task",
+      "Resource": "${batch_lambda_arn}",
+      "Parameters": {
+        "request_version": 1,
+        "action": "renew_ingestion_lease",
+        "ingestion_id.$": "$.ingestion_id",
+        "ingestion_owner.$": "$.ingestion_owner"
+      },
+      "ResultPath": null,
+      "TimeoutSeconds": 60,
+      "Next": "AdvancePublication"
     },
     "AdvancePublication": {
       "Type": "Task",
@@ -113,90 +254,6 @@
       },
       "TimeoutSeconds": 60,
       "End": true
-    },
-    "RenewBeforeUpstream": {
-      "Type": "Task",
-      "Resource": "${batch_lambda_arn}",
-      "Parameters": {
-        "request_version": 1,
-        "action": "renew_ingestion_lease",
-        "ingestion_id.$": "$.ingestion_id",
-        "ingestion_owner.$": "$.ingestion_owner"
-      },
-      "ResultPath": null,
-      "TimeoutSeconds": 60,
-      "Next": "RunUpstreamStages"
-    },
-    "RenewBeforePublication": {
-      "Type": "Task",
-      "Resource": "${batch_lambda_arn}",
-      "Parameters": {
-        "request_version": 1,
-        "action": "renew_ingestion_lease",
-        "ingestion_id.$": "$.ingestion_id",
-        "ingestion_owner.$": "$.ingestion_owner"
-      },
-      "ResultPath": null,
-      "TimeoutSeconds": 60,
-      "Next": "AdvancePublication"
-    },
-    "CheckUpstreamStages": {
-      "Type": "Choice",
-      "Choices": [
-        {
-          "And": [
-            {
-              "Variable": "$.upstream_results[0].status",
-              "StringEquals": "SUCCEEDED"
-            },
-            {
-              "Variable": "$.upstream_results[1].status",
-              "StringEquals": "SUCCEEDED"
-            }
-          ],
-          "Next": "RenewBeforePublication"
-        },
-        {
-          "And": [
-            {
-              "Or": [
-                {
-                  "Variable": "$.upstream_results[0].status",
-                  "StringEquals": "RUNNING"
-                },
-                {
-                  "Variable": "$.upstream_results[0].status",
-                  "StringEquals": "SUCCEEDED"
-                }
-              ]
-            },
-            {
-              "Or": [
-                {
-                  "Variable": "$.upstream_results[1].status",
-                  "StringEquals": "RUNNING"
-                },
-                {
-                  "Variable": "$.upstream_results[1].status",
-                  "StringEquals": "SUCCEEDED"
-                }
-              ]
-            }
-          ],
-          "Next": "WaitForUpstreamStages"
-        }
-      ],
-      "Default": "UpstreamStageFailed"
-    },
-    "WaitForUpstreamStages": {
-      "Type": "Wait",
-      "Seconds": 15,
-      "Next": "RenewBeforeUpstream"
-    },
-    "UpstreamStageFailed": {
-      "Type": "Fail",
-      "Error": "BatchUpstreamStageFailed",
-      "CausePath": "States.Format('Ingestion {} upstream statuses: Processing={}, Raw History={}', $.ingestion_id, $.upstream_results[0].status, $.upstream_results[1].status)"
     }
   }
 }

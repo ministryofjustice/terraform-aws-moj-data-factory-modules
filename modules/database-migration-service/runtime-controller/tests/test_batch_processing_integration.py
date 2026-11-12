@@ -8,19 +8,18 @@ from dms_runtime.batch_downstream import (
     BatchDownstream,
     BatchPrerequisiteMissing,
 )
+from dms_runtime.batch_lambda_function import build_batch_entry_point
 from dms_runtime.batch_processing import (
     BatchProcessing,
+    BatchPublication,
     BatchRawHistory,
     ProcessingCompletion,
-    BatchPublication,
 )
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.identity import TableIdentity
-from ingestion_registry.ownership import IngestionOwnership
+from ingestion_registry.ownership import IngestionOwnership, OwnershipLost
 from ingestion_registry.progress import IngestionProgress
 from ingestion_registry.requests import NewIngestionRequest
-from dms_runtime.batch_lambda_function import build_batch_entry_point
-from ingestion_registry.ownership import OwnershipLost
 
 
 @pytest.fixture
@@ -220,6 +219,7 @@ def test_recovers_processing_after_lost_response_and_owner_takeover(
         stage="PROCESSING",
     )
 
+
 def test_raw_history_commits_while_processing_is_running(processing_setup):
     (
         processing,
@@ -300,6 +300,7 @@ def test_raw_history_commits_while_processing_is_running(processing_setup):
     processing_adapter.submit.assert_called_once()
     history_adapter.submit.assert_called_once()
 
+
 def test_publication_waits_for_processing_and_recovers_lost_response(
     processing_setup,
 ):
@@ -332,9 +333,13 @@ def test_publication_waits_for_processing_and_recovers_lost_response(
         update_id="history-baseline-complete",
         expected_revision=0,
         result_reference={
-            "kind": "history-commit",
-            "commit_id": "baseline-commit-one",
+            "kind": "raw-history-commit",
+            "commit_id": "d" * 64,
             "history_location": history_location,
+            "bucket_name": "example-history",
+            "object_key": "history/commits/operation-one/result.json",
+            "version_id": "history-commit-version-one",
+            "sha256": "d" * 64,
         },
     )
 
@@ -368,7 +373,13 @@ def test_publication_waits_for_processing_and_recovers_lost_response(
 
     def submit(*, operation_id, request_fingerprint, request):
         assert request["history_location"] == history_location
-        assert request["history_commit_id"] == "baseline-commit-one"
+        assert request["history_commit_id"] == "d" * 64
+        assert request["history_commit"] == {
+            "bucket_name": "example-history",
+            "object_key": "history/commits/operation-one/result.json",
+            "version_id": "history-commit-version-one",
+            "sha256": "d" * 64,
+        }
         assert request["contract"]["contract_object_version_id"] == (
             "contract-version-one"
         )
@@ -414,6 +425,7 @@ def test_publication_waits_for_processing_and_recovers_lost_response(
             ingestion_id=claim.ingestion_id,
             stage=stage,
         ) == before
+
 
 def test_renewed_batch_owner_can_poll_past_original_expiry(processing_setup):
     processing, adapter, _, ownership, claim, clock, *_ = processing_setup
@@ -468,7 +480,8 @@ def test_renewed_batch_owner_can_poll_past_original_expiry(processing_setup):
     assert polled_claim.attempt == claim.attempt
     assert polled_claim.lease_expires_at == renewed["lease_expires_at"]
     adapter.lookup.assert_called_once_with(operation_id=operation_id)
-    adapter.submit.assert_called_once()
+    assert adapter.submit.call_count == 2
+    assert adapter.submit.call_args_list[0] == adapter.submit.call_args_list[1]
 
     clock["now"] = renewed["lease_expires_at"]
     ownership.claim(
@@ -482,5 +495,5 @@ def test_renewed_batch_owner_can_poll_past_original_expiry(processing_setup):
     with pytest.raises(OwnershipLost, match="expired or superseded"):
         entry_point(event, None)
 
-    assert handler.handle.call_count == 2
     adapter.lookup.assert_called_once_with(operation_id=operation_id)
+    assert adapter.submit.call_count == 2

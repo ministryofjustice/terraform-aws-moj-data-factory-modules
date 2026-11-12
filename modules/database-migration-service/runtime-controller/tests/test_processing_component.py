@@ -191,3 +191,38 @@ def test_rejects_wrong_request_fingerprint_before_reserving(component_setup):
     adapter = BatchProcessingAdapter(component.handle)
     assert adapter.lookup(operation_id=OPERATION_ID) is None
     assert component.claim_work(OPERATION_ID) is None
+
+def test_worker_failure_is_terminal_and_exact_retry_is_safe(component_setup):
+    component, request = component_setup
+    adapter = BatchProcessingAdapter(component.handle)
+    assert submit(adapter, request) is None
+
+    claimed = component.claim_work(OPERATION_ID)
+    assert claimed is not None
+    token, _ = claimed
+
+    with pytest.raises(ProcessingOperationConflict, match="cannot record"):
+        component.fail(
+            OPERATION_ID,
+            worker_token="other-worker",
+            failure_code="INVALID_PINNED_INPUT",
+        )
+
+    for _ in range(2):
+        component.fail(
+            OPERATION_ID,
+            worker_token=token,
+            failure_code="INVALID_PINNED_INPUT",
+        )
+
+    assert component.claim_work(OPERATION_ID) is None
+
+    response = component.handle(
+        {
+            "request_version": 1,
+            "action": "lookup_processing",
+            "operation_id": OPERATION_ID,
+        }
+    )
+    assert response["status"] == "FAILED"
+    assert response["failure_code"] == "INVALID_PINNED_INPUT"

@@ -13,6 +13,7 @@ SHUTDOWN_STAGES = frozenset(
     {
         "SOURCE_STOPPED",
         "CDC_DRAINED",
+        "CDC_CONSUMER_STOPPED",
         "HISTORY_FINALIZED",
     }
 )

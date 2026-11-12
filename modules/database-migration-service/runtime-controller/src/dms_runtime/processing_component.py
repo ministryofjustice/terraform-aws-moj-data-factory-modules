@@ -191,6 +191,28 @@ class ProcessingComponent:
 
         return worker_token, json.loads(result["Attributes"]["request_json"])
 
+    def requeue(self, operation_id: str, *, worker_token: str) -> bool:
+        _require_digest(operation_id, "operation_id")
+
+        try:
+            self._table.update_item(
+                Key={"operation_id": operation_id},
+                ConditionExpression="#status = :running AND worker_token = :token",
+                UpdateExpression="SET #status = :accepted REMOVE worker_token",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":running": "RUNNING",
+                    ":accepted": "ACCEPTED",
+                    ":token": worker_token,
+                },
+            )
+        except ClientError as error:
+            if _conditional_failure(error):
+                return False
+            raise
+
+        return True
+
     def read_running_work(
         self,
         operation_id: str,
@@ -248,6 +270,50 @@ class ProcessingComponent:
                 f"Processing operation {operation_id} cannot record this result"
             ) from error
 
+    def fail(
+        self,
+        operation_id: str,
+        *,
+        worker_token: str,
+        failure_code: str,
+    ) -> None:
+        """Record a definite failure for the worker that owns the operation."""
+        _require_digest(operation_id, "operation_id")
+        if not isinstance(failure_code, str) or not re.fullmatch(
+            r"[A-Z][A-Z0-9_]{0,63}", failure_code
+        ):
+            raise ValueError("Invalid Processing failure code")
+
+        try:
+            self._table.update_item(
+                Key={"operation_id": operation_id},
+                ConditionExpression="#status = :running AND worker_token = :token",
+                UpdateExpression="SET #status = :failed, failure_code = :code",
+                ExpressionAttributeNames={"#status": "status"},
+                ExpressionAttributeValues={
+                    ":running": "RUNNING",
+                    ":failed": "FAILED",
+                    ":token": worker_token,
+                    ":code": failure_code,
+                },
+            )
+        except ClientError as error:
+            if not _conditional_failure(error):
+                raise
+
+            item = self._read(operation_id)
+            if (
+                item is not None
+                and item["status"] == "FAILED"
+                and item.get("worker_token") == worker_token
+                and item.get("failure_code") == failure_code
+            ):
+                return
+
+            raise ProcessingOperationConflict(
+                f"Processing operation {operation_id} cannot record this failure"
+            ) from error
+
     def _read(self, operation_id: str) -> dict[str, Any] | None:
         return self._table.get_item(
             Key={"operation_id": operation_id},
@@ -265,4 +331,6 @@ class ProcessingComponent:
         }
         if item["status"] == "SUCCEEDED":
             response["result"] = item["result"]
+        elif item["status"] == "FAILED":
+            response["failure_code"] = item["failure_code"]
         return response

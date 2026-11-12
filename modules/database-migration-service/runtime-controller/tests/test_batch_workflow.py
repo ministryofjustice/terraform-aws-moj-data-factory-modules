@@ -24,6 +24,7 @@ OWNER = {
 STAGES = {
     "advance_processing": "PROCESSING",
     "advance_raw_history": "HISTORY_BASELINE",
+    "advance_reconciliation": "RECONCILIATION",
     "advance_publication": "PUBLICATION",
     "mark_baseline_ready": "BASELINE",
 }
@@ -217,9 +218,10 @@ def run_workflow(workflow, batch, *, mode):
 
 def test_publication_waits_for_processing_and_raw_history(workflow):
     batch = ScriptedBatch(
-        renew_ingestion_lease=[1300, 1315, 1315],
+        renew_ingestion_lease=[1300, 1315, 1315, 1330, 1330],
         advance_processing=["RUNNING", "SUCCEEDED"],
         advance_raw_history=["SUCCEEDED", "SUCCEEDED"],
+        advance_reconciliation=["RUNNING", "SUCCEEDED"],
         advance_publication=["SUCCEEDED"],
         mark_baseline_ready=["SUCCEEDED"],
     )
@@ -233,6 +235,10 @@ def test_publication_waits_for_processing_and_raw_history(workflow):
         "renew_ingestion_lease",
         "advance_processing",
         "advance_raw_history",
+        "renew_ingestion_lease",
+        "advance_reconciliation",
+        "renew_ingestion_lease",
+        "advance_reconciliation",
         "renew_ingestion_lease",
         "advance_publication",
         "mark_baseline_ready",
@@ -282,9 +288,10 @@ def test_required_reconciliation_blocks_baseline_readiness(workflow):
 
 def test_lost_publication_response_can_resume_at_publication(workflow):
     batch = ScriptedBatch(
-        renew_ingestion_lease=[1300, 1300, 1315],
+        renew_ingestion_lease=[1300, 1300, 1300, 1315],
         advance_processing=["SUCCEEDED"],
         advance_raw_history=["SUCCEEDED"],
+        advance_reconciliation=["NOT_REQUIRED"],
         advance_publication=[TimeoutError("response lost"), "SUCCEEDED"],
         mark_baseline_ready=["SUCCEEDED"],
     )
@@ -320,4 +327,24 @@ def test_lease_loss_stops_the_next_upstream_round(workflow):
         "advance_processing",
         "advance_raw_history",
         "renew_ingestion_lease",
+    ]
+
+
+def test_failed_reconciliation_stops_before_publication(workflow):
+    batch = ScriptedBatch(
+        renew_ingestion_lease=[1300, 1300],
+        advance_processing=["SUCCEEDED"],
+        advance_raw_history=["SUCCEEDED"],
+        advance_reconciliation=["FAILED"],
+    )
+
+    with pytest.raises(RuntimeError, match="BatchReconciliationFailed"):
+        run_workflow(workflow, batch, mode="batch")
+
+    assert batch.calls == [
+        "renew_ingestion_lease",
+        "advance_processing",
+        "advance_raw_history",
+        "renew_ingestion_lease",
+        "advance_reconciliation",
     ]
