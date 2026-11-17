@@ -46,6 +46,11 @@ def finalize_deployment(
             artifact_reference=references["artifact"],
             manifest_reference=references["manifest"],
             allowed_bucket=bucket_name,
+            **(
+                {"catalog_reference": references["catalog"]}
+                if "catalog" in references
+                else {}
+            ),
         )
 
     return {

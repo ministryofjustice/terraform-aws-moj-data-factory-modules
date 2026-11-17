@@ -4,6 +4,11 @@ import re
 
 from ingestion_config.inventory import validate_inventory
 from ingestion_config.loader import ConfigurationError
+from ingestion_config.contract_catalog import build_contract_catalog
+from ingestion_config.contract_runtime_inputs import (
+    build_contract_runtime_configuration,
+)
+from ingestion_config.compiler import canonical_json
 
 
 REPOSITORY = "ministryofjustice/terraform-aws-moj-data-factory-modules"
@@ -39,6 +44,7 @@ def build_deployment_inputs(
     retained_inventory: dict,
     retained_assignments: dict,
     compiler_commit: str,
+    contract_deployment_references: dict | None = None,
 ) -> dict:
     try:
         artifacts = artifacts_from(inventory)
@@ -333,6 +339,74 @@ def build_deployment_inputs(
                 "capacity_assignments": capacity_assignments,
             }
         }
+
+        contract_runtime_settings = foundations.get("contract_runtime_settings", {})
+        require(
+            isinstance(contract_runtime_settings, dict),
+            "Contract runtime settings must be an object keyed by source",
+        )
+
+        if contract_runtime_settings:
+            require(
+                contract_deployment_references is not None,
+                "Contract runtime settings require deployed contract references",
+            )
+            require(
+                set(contract_runtime_settings) <= services,
+                "Contract runtime settings include an unknown source",
+            )
+
+        if contract_deployment_references is not None:
+            deployment = result["deployment"]
+            catalogs = {
+                key: build_contract_catalog(
+                    artifact,
+                    contract_deployment_references,
+                    account_id=account,
+                )
+                for key, artifact in sorted(artifacts.items())
+            }
+            deployment["contract_catalogs"] = catalogs
+
+            if contract_runtime_settings:
+                contract_runtimes = {}
+                for key, artifact in sorted(artifacts.items()):
+                    source = artifact["runtime_configuration"]["source"]
+                    if source not in contract_runtime_settings:
+                        continue
+
+                    trusted = contract_runtime_settings[source]
+                    require(
+                        isinstance(trusted, dict)
+                        and set(trusted) == {
+                            "settings",
+                            "authorised_reviewers",
+                            "execution_policy",
+                        },
+                        f"{source}: contract runtime settings are incomplete",
+                    )
+                    configuration_json = build_contract_runtime_configuration(
+                        artifact=artifact,
+                        catalog=catalogs[key],
+                        registry=registry,
+                        published_documents=runtime_settings[source][
+                            "published_documents"
+                        ],
+                        settings=trusted["settings"],
+                        authorised_reviewers=trusted["authorised_reviewers"],
+                    )
+                    require(
+                        isinstance(trusted["execution_policy"], dict),
+                        f"{source}: contract runtime execution policy must be an object",
+                    )
+                    contract_runtimes[key] = {
+                        "configuration_json": configuration_json,
+                        "execution_policy": canonical_json(
+                            trusted["execution_policy"]
+                        ),
+                    }
+
+                deployment["contract_runtimes"] = contract_runtimes
 
         return copy.deepcopy(result)
 

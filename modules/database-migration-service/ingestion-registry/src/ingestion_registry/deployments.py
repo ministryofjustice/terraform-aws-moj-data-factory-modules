@@ -19,6 +19,7 @@ def _keys(
     source,
     extraction_generation,
     artifact_revision,
+    catalog_sha256=None,
 ):
     for name, value in (
         ("environment", environment),
@@ -38,6 +39,14 @@ def _keys(
     if not re.fullmatch(r"[0-9a-f]{64}", artifact_revision):
         raise ValueError("Invalid deployment artifact revision")
 
+    catalog_suffix = ""
+    if catalog_sha256 is not None:
+        if not isinstance(catalog_sha256, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", catalog_sha256
+        ):
+            raise ValueError("Invalid deployment catalog SHA-256")
+        catalog_suffix = f"#CATALOG#{catalog_sha256}"
+
     return {
         "pk": (
             f"DEPLOYMENT#{environment}#{account_id}"
@@ -45,7 +54,7 @@ def _keys(
         ),
         "sk": (
             f"GENERATION#{extraction_generation}"
-            f"#ARTIFACT#{artifact_revision}"
+            f"#ARTIFACT#{artifact_revision}{catalog_suffix}"
         ),
     }
 
@@ -67,15 +76,8 @@ class DeploymentCatalog:
         artifact_reference,
         manifest_reference,
         allowed_bucket,
+        catalog_reference=None,
     ):
-        keys = _keys(
-            environment=environment,
-            account_id=account_id,
-            region=region,
-            source=source,
-            extraction_generation=extraction_generation,
-            artifact_revision=artifact_revision,
-        )
 
         if not re.fullmatch(
             r"[0-9a-f]{64}",
@@ -87,10 +89,14 @@ class DeploymentCatalog:
 
         documents = {}
 
-        for kind, supplied in (
-            ("artifact", artifact_reference),
-            ("manifest", manifest_reference),
-        ):
+        supplied_documents = {
+            "artifact": artifact_reference,
+            "manifest": manifest_reference,
+        }
+        if catalog_reference is not None:
+            supplied_documents["catalog"] = catalog_reference
+
+        for kind, supplied in supplied_documents.items():
             reference = S3ObjectReference(**supplied)
 
             expected_key = (
@@ -107,6 +113,16 @@ class DeploymentCatalog:
                 )
 
             documents[kind] = asdict(reference)
+
+        keys = _keys(
+            environment=environment,
+            account_id=account_id,
+            region=region,
+            source=source,
+            extraction_generation=extraction_generation,
+            artifact_revision=artifact_revision,
+            catalog_sha256=documents.get("catalog", {}).get("sha256"),
+        )
 
         record = {
             **keys,

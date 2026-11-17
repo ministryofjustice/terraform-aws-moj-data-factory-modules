@@ -57,10 +57,30 @@ def build_deployment_bundle(deployments: dict, *, account_id: str) -> dict:
                 account_id=account_id,
             )
 
-            services[name] = {
+            service = {
                 "artifact": artifact,
                 "manifest": manifest,
             }
+
+            contract_catalog = deployment.get("contract_catalog")
+            if contract_catalog is not None:
+                expected_context = {
+                    "catalog_version": 1,
+                    "environment": runtime["environment"],
+                    "account_id": account_id,
+                    "region": runtime["region"],
+                    "configuration_revision": artifact["configuration_revision"],
+                    "artifact_revision": artifact["artifact_revision"],
+                }
+                for field, expected in expected_context.items():
+                    if contract_catalog.get(field) != expected:
+                        raise ConfigurationError(
+                            f"{name}: contract catalog {field} does not match "
+                            "the deployment"
+                        )
+                service["catalog"] = contract_catalog
+
+            services[name] = service
             manifests.append(manifest)
 
         except (KeyError, TypeError, AttributeError) as error:

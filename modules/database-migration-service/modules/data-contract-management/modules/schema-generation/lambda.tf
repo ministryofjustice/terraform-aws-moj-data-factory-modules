@@ -7,6 +7,7 @@ resource "aws_cloudwatch_log_group" "generation" {
 }
 
 resource "aws_lambda_function" "generation" {
+  publish       = true
   function_name = var.name
   description   = "Generates structurally validated Avro contracts from configured source metadata."
 

@@ -294,3 +294,96 @@ def test_invalid_operation_is_rejected_before_bootstrap(monkeypatch):
         )
 
     get_handler.assert_not_called()
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        None,
+        "Pinned contract deployment is not registered",
+        "Registered contract catalog digest does not match",
+    ],
+    ids=["exact-reference", "missing-record", "mismatched-digest"],
+)
+def test_bootstrap_resolves_registered_catalog(
+    bootstrap_setup, monkeypatch, error_message
+):
+    setup = bootstrap_setup
+    document = setup["document"]
+    documents = document["documents"]
+    references = {
+        name: documents.pop(name)
+        for name in ("manifest", "artifact", "catalog")
+    }
+    digest = references["catalog"]["sha256"]
+    documents.update(
+        extraction_generation="sandbox-v1",
+        catalog_sha256=digest,
+    )
+
+    lookup = document["lookup"]
+    record = {
+        "record_type": "DEPLOYMENT_REFERENCE",
+        "configuration_revision": lookup["configuration_revision"],
+        "document_references": references,
+    }
+    if error_message == "Pinned contract deployment is not registered":
+        record = None
+    elif error_message == "Registered contract catalog digest does not match":
+        references["catalog"]["sha256"] = "0" * 64 if digest != "0" * 64 else "1" * 64
+
+    catalog = Mock()
+    catalog.get.return_value = record
+    monkeypatch.setattr(
+        contract_lambda_function, "DeploymentCatalog", Mock(return_value=catalog)
+    )
+
+    if error_message is None:
+        contract_lambda_function.build_handler(
+            environment(setup), session=setup["session"]
+        )
+
+        factory_arguments = setup["factory"].call_args.kwargs
+        assert factory_arguments["catalog_reference"].sha256 == digest
+        assert (
+            factory_arguments["catalog_reference"].version_id
+            == references["catalog"]["version_id"]
+        )
+    else:
+        with pytest.raises(ValueError, match=error_message):
+            contract_lambda_function.build_handler(
+                environment(setup), session=setup["session"]
+            )
+        setup["factory"].assert_not_called()
+
+    catalog.get.assert_called_once_with(
+        environment=lookup["environment"],
+        account_id=lookup["account_id"],
+        region=lookup["region"],
+        source=lookup["source"],
+        extraction_generation="sandbox-v1",
+        artifact_revision=lookup["artifact_revision"],
+        catalog_sha256=digest,
+    )
+
+def test_bootstrap_selects_table_within_configured_source(bootstrap_setup):
+    setup = bootstrap_setup
+    original_lookup = setup["document"]["lookup"]
+
+    contract_lambda_function.build_handler(
+        environment(setup),
+        session=setup["session"],
+        table_selection=("another_schema", "another_table"),
+    )
+
+    arguments = setup["factory"].call_args.kwargs
+    lookup = arguments["lookup"]
+
+    assert lookup.schema_name == "another_schema"
+    assert lookup.table_name == "another_table"
+    assert lookup.source == original_lookup["source"]
+    assert lookup.database_name == original_lookup["database_name"]
+    assert lookup.artifact_revision == original_lookup["artifact_revision"]
+    assert (
+        lookup.configuration_revision
+        == original_lookup["configuration_revision"]
+    )

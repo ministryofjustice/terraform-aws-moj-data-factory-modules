@@ -1,6 +1,7 @@
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
@@ -12,6 +13,7 @@ from ingestion_config.published_documents import DocumentReference
 from ingestion_config.published_resolver import TableLookup
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.contract_policy import ContractPolicy
+from ingestion_registry.deployments import DeploymentCatalog
 from ingestion_registry.identity import TableIdentity
 
 from dms_runtime.contract_factory import (
@@ -30,7 +32,11 @@ from dms_runtime.ownership import RuntimeContext
 MAX_CONFIGURATION_BYTES = 16384
 
 
-def _parse_configuration(environment):
+def _parse_configuration(
+    environment,
+    *,
+    table_selection: tuple[str, str] | None = None,
+):
     raw = environment.get("CONTRACT_RUNTIME_CONFIG")
 
     if not isinstance(raw, str) or not raw.strip():
@@ -75,6 +81,13 @@ def _parse_configuration(environment):
 
     try:
         lookup = TableLookup(**document["lookup"])
+        if table_selection is not None:
+            schema_name, table_name = table_selection
+            lookup = replace(
+                lookup,
+                schema_name=schema_name,
+                table_name=table_name,
+            )
 
         RuntimeContext(
             environment=lookup.environment,
@@ -105,26 +118,31 @@ def _parse_configuration(environment):
                 )
 
         documents = document["documents"]
-
-        if (
-            not isinstance(documents, dict)
-            or set(documents) != {
-                "bucket_name",
-                "prefix",
-                "bucket_owner_account_id",
-                "manifest",
-                "artifact",
-                "catalog",
-            }
-        ):
-            raise ValueError(
-                "Published document configuration is incomplete"
-            )
-
-        references = {
-            name: DocumentReference(**documents[name])
-            for name in ("manifest", "artifact", "catalog")
+        storage_fields = {
+            "bucket_name",
+            "prefix",
+            "bucket_owner_account_id",
         }
+        reference_fields = {"manifest", "artifact", "catalog"}
+        locator_fields = {"extraction_generation", "catalog_sha256"}
+
+        if not isinstance(documents, dict):
+            raise ValueError("Published document configuration is incomplete")
+
+        if set(documents) == storage_fields | reference_fields:
+            references = {
+                name: DocumentReference(**documents[name])
+                for name in ("manifest", "artifact", "catalog")
+            }
+        elif set(documents) == storage_fields | locator_fields:
+            digest = documents["catalog_sha256"]
+            if not isinstance(digest, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", digest
+            ):
+                raise ValueError("Invalid deployment catalog SHA-256")
+            references = None
+        else:
+            raise ValueError("Published document configuration is incomplete")
 
         supplied_settings = dict(document["settings"])
 
@@ -194,8 +212,12 @@ def build_handler(
     environment: Mapping[str, str],
     *,
     session: Any,
+    table_selection: tuple[str, str] | None = None,
 ) -> ContractHandler:
-    configuration = _parse_configuration(environment)
+    configuration = _parse_configuration(
+        environment,
+        table_selection=table_selection,
+    )
     lookup = configuration["lookup"]
     documents = configuration["documents"]
     references = configuration["references"]
@@ -237,6 +259,41 @@ def build_handler(
         ),
         table_name=configuration["table_name"],
     )
+
+    if references is None:
+        digest = documents["catalog_sha256"]
+        record = DeploymentCatalog(registry).get(
+            environment=lookup.environment,
+            account_id=lookup.account_id,
+            region=lookup.region,
+            source=lookup.source,
+            extraction_generation=documents["extraction_generation"],
+            artifact_revision=lookup.artifact_revision,
+            catalog_sha256=digest,
+        )
+        if record is None:
+            raise ValueError("Pinned contract deployment is not registered")
+
+        if (
+            record.get("record_type") != "DEPLOYMENT_REFERENCE"
+            or record.get("configuration_revision") != lookup.configuration_revision
+        ):
+            raise ValueError("Registered deployment does not match the selected revision")
+
+        registered = record.get("document_references")
+        if not isinstance(registered, dict) or set(registered) != {
+            "manifest",
+            "artifact",
+            "catalog",
+        }:
+            raise ValueError("Registered deployment document references are incomplete")
+
+        references = {
+            name: DocumentReference(**registered[name])
+            for name in ("manifest", "artifact", "catalog")
+        }
+        if references["catalog"].sha256 != digest:
+            raise ValueError("Registered contract catalog digest does not match")
 
     s3_client = session.client(
         "s3",
@@ -281,8 +338,37 @@ def lambda_handler(
     event: Any,
     context: Any,
 ) -> dict[str, Any]:
-    validate_contract_request(event)
+    if isinstance(event, Mapping) and "table_selection" in event:
+        if set(event) != {"table_selection", "request"}:
+            raise ValueError(
+                "Table-selected invocation requires table_selection and request"
+            )
 
-    return to_json_value(
-        _get_handler().handle(event)
-    )
+        selection = event["table_selection"]
+        if not isinstance(selection, Mapping) or set(selection) != {
+            "schema_name",
+            "table_name",
+        }:
+            raise ValueError("Table selection requires schema_name and table_name")
+
+        schema_name = selection["schema_name"]
+        table_name = selection["table_name"]
+        if any(
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            for value in (schema_name, table_name)
+        ):
+            raise ValueError("Schema and table names must be non-empty and trimmed")
+
+        request = event["request"]
+        validate_contract_request(request)
+        handler = build_handler(
+            os.environ,
+            session=boto3.session.Session(),
+            table_selection=(schema_name, table_name),
+        )
+        return to_json_value(handler.handle(request))
+
+    validate_contract_request(event)
+    return to_json_value(_get_handler().handle(event))

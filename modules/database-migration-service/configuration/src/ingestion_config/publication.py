@@ -54,7 +54,11 @@ def publish_deployments(
                 "Invalid publication service name"
             )
 
-        for kind in ("artifact", "manifest"):
+        kinds = ("artifact", "manifest", "catalog") if "catalog" in service else (
+            "artifact",
+            "manifest",
+        )
+        for kind in kinds:
             raw = canonical_json(service[kind]).encode("utf-8")
 
             if len(raw) > MAX_JSON_BYTES:
