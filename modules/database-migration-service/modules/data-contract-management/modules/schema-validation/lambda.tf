@@ -7,6 +7,7 @@ resource "aws_cloudwatch_log_group" "validation" {
 }
 
 resource "aws_lambda_function" "validation" {
+  publish       = true
   function_name = var.name
   description   = "Validates incoming Parquet schemas against registered Avro contracts."
 

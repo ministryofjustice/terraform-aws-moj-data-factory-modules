@@ -40,3 +40,8 @@ output "alarm_arns" {
     aws_cloudwatch_metric_alarm.failure_queue[*].arn,
   )
 }
+
+output "function_qualified_arn" {
+  description = "ARN of the published Lambda function version."
+  value       = aws_lambda_function.generation.qualified_arn
+}

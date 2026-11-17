@@ -7,6 +7,7 @@ resource "aws_cloudwatch_log_group" "registration" {
 }
 
 resource "aws_lambda_function" "registration" {
+  publish       = true
   function_name = var.name
   description   = "Registers validated contract versions and their metadata."
 
