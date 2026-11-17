@@ -157,3 +157,48 @@ def test_unexpected_aws_failure_is_propagated(entry):
         DeploymentCatalog(db).register(**entry)
 
     db._read.assert_not_called()
+
+def test_catalog_registration_preserves_legacy_record_and_supports_retry(entry):
+    db = registry()
+    catalog = DeploymentCatalog(db)
+    records = {}
+
+    def put_item(*, TableName, Item, ConditionExpression):
+        assert ConditionExpression == "attribute_not_exists(pk)"
+        key = (Item["pk"], Item["sk"])
+        if key in records:
+            raise conflict()
+        records[key] = copy.deepcopy(Item)
+
+    db.client.put_item.side_effect = put_item
+    db._read.side_effect = lambda pk, sk: copy.deepcopy(records.get((pk, sk)))
+
+    digest = "e" * 64
+    reference = {
+        "bucket_name": entry["allowed_bucket"],
+        "object_key": f"services/{entry['source']}/catalog/{digest}.json",
+        "version_id": "catalog-version",
+        "sha256": digest,
+    }
+    identity = {
+        field: entry[field]
+        for field in (
+            "environment",
+            "account_id",
+            "region",
+            "source",
+            "extraction_generation",
+            "artifact_revision",
+        )
+    }
+
+    legacy = catalog.register(**entry)
+    qualified = catalog.register(**entry, catalog_reference=reference)
+
+    assert legacy["pk"] == qualified["pk"]
+    assert qualified["sk"] == f"{legacy['sk']}#CATALOG#{digest}"
+    assert qualified["document_references"]["catalog"] == reference
+    assert catalog.get(**identity) == legacy
+    assert catalog.get(**identity, catalog_sha256=digest) == qualified
+    assert catalog.register(**entry, catalog_reference=reference) == qualified
+    assert len(records) == 2
