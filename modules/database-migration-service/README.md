@@ -129,6 +129,54 @@ Both the DMS task transformation rule and the metadata generator pick the
 name from `var.dms_source.engine_name`, so downstream Parquet files and
 Glue/metadata schemas stay in sync.
 
+## Independent Oracle CDC reload
+
+Add a `cdc` block to an existing `independent_full_loads` entry to create a
+separate CDC-only task, without modifying its full-load task. Omit the block
+to retain the previous behaviour. Timestamps must be UTC, include seconds,
+and the stop time must be later than the start time.
+
+```hcl
+independent_full_loads = {
+  reload = {
+    full_load_name = "reload"
+    path = {
+      bucket = "my-mapping-bucket"
+      key    = "reload/mappings.json"
+    }
+    cdc = {
+      replication_task_id = "my-db-cdc-reload"
+      start_time          = "2025-04-02T12:00:00Z"
+      stop_time           = "2025-04-02T13:00:00Z"
+      output_key_suffix   = "_cdc_reload" # optional; this is the default
+    }
+  }
+}
+```
+
+This timestamp-based option is intended for Oracle; PostgreSQL does not
+support a custom CDC start time. Ensure Oracle supplemental logging and redo
+retention cover the requested period. Coordinate the full-load snapshot and
+CDC start position to avoid gaps or duplicates.
+
+Tasks are created **stopped**. The AWS provider does not expose a CDC stop
+position on `aws_dms_replication_task`, so the stop time is applied when
+starting the task, not by Terraform at creation. After applying, obtain the
+command from the module output `independent_cdc_start_commands` in the
+calling configuration and run it using the AWS CLI. The command starts CDC
+at `start_time` and stops at the source **commit time** `stop_time`. Starting
+the task without that stop position will not enforce the requested stop.
+For restarts, select the appropriate DMS resume operation and verify the stop
+position rather than blindly rerunning the first-start command.
+
+Each CDC task writes to the landing prefix
+`independent-cdc/<replication_task_id>/`. Validation appends its suffix before
+`.parquet`; other tasks retain their existing suffix. Validated CDC files are
+placed alongside the existing full-load files, so existing Glue tables and
+downstream readers can see them. Invalid files retain the separate prefix so
+they can be identified on retry. Confirm that independent metadata has been
+generated before processing the files.
+
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
 <!-- textlint-disable -->
