@@ -1,6 +1,7 @@
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from functools import lru_cache
 from typing import Any
 
@@ -31,7 +32,11 @@ from dms_runtime.ownership import RuntimeContext
 MAX_CONFIGURATION_BYTES = 16384
 
 
-def _parse_configuration(environment):
+def _parse_configuration(
+    environment,
+    *,
+    table_selection: tuple[str, str] | None = None,
+):
     raw = environment.get("CONTRACT_RUNTIME_CONFIG")
 
     if not isinstance(raw, str) or not raw.strip():
@@ -76,6 +81,13 @@ def _parse_configuration(environment):
 
     try:
         lookup = TableLookup(**document["lookup"])
+        if table_selection is not None:
+            schema_name, table_name = table_selection
+            lookup = replace(
+                lookup,
+                schema_name=schema_name,
+                table_name=table_name,
+            )
 
         RuntimeContext(
             environment=lookup.environment,
@@ -200,8 +212,12 @@ def build_handler(
     environment: Mapping[str, str],
     *,
     session: Any,
+    table_selection: tuple[str, str] | None = None,
 ) -> ContractHandler:
-    configuration = _parse_configuration(environment)
+    configuration = _parse_configuration(
+        environment,
+        table_selection=table_selection,
+    )
     lookup = configuration["lookup"]
     documents = configuration["documents"]
     references = configuration["references"]
@@ -322,8 +338,37 @@ def lambda_handler(
     event: Any,
     context: Any,
 ) -> dict[str, Any]:
-    validate_contract_request(event)
+    if isinstance(event, Mapping) and "table_selection" in event:
+        if set(event) != {"table_selection", "request"}:
+            raise ValueError(
+                "Table-selected invocation requires table_selection and request"
+            )
 
-    return to_json_value(
-        _get_handler().handle(event)
-    )
+        selection = event["table_selection"]
+        if not isinstance(selection, Mapping) or set(selection) != {
+            "schema_name",
+            "table_name",
+        }:
+            raise ValueError("Table selection requires schema_name and table_name")
+
+        schema_name = selection["schema_name"]
+        table_name = selection["table_name"]
+        if any(
+            not isinstance(value, str)
+            or not value
+            or value != value.strip()
+            for value in (schema_name, table_name)
+        ):
+            raise ValueError("Schema and table names must be non-empty and trimmed")
+
+        request = event["request"]
+        validate_contract_request(request)
+        handler = build_handler(
+            os.environ,
+            session=boto3.session.Session(),
+            table_selection=(schema_name, table_name),
+        )
+        return to_json_value(handler.handle(request))
+
+    validate_contract_request(event)
+    return to_json_value(_get_handler().handle(event))

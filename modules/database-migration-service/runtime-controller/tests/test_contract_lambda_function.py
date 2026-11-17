@@ -364,3 +364,26 @@ def test_bootstrap_resolves_registered_catalog(
         artifact_revision=lookup["artifact_revision"],
         catalog_sha256=digest,
     )
+
+def test_bootstrap_selects_table_within_configured_source(bootstrap_setup):
+    setup = bootstrap_setup
+    original_lookup = setup["document"]["lookup"]
+
+    contract_lambda_function.build_handler(
+        environment(setup),
+        session=setup["session"],
+        table_selection=("another_schema", "another_table"),
+    )
+
+    arguments = setup["factory"].call_args.kwargs
+    lookup = arguments["lookup"]
+
+    assert lookup.schema_name == "another_schema"
+    assert lookup.table_name == "another_table"
+    assert lookup.source == original_lookup["source"]
+    assert lookup.database_name == original_lookup["database_name"]
+    assert lookup.artifact_revision == original_lookup["artifact_revision"]
+    assert (
+        lookup.configuration_revision
+        == original_lookup["configuration_revision"]
+    )
