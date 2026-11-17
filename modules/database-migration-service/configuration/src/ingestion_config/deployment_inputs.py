@@ -4,6 +4,7 @@ import re
 
 from ingestion_config.inventory import validate_inventory
 from ingestion_config.loader import ConfigurationError
+from ingestion_config.contract_catalog import build_contract_catalog
 
 
 REPOSITORY = "ministryofjustice/terraform-aws-moj-data-factory-modules"
@@ -39,6 +40,7 @@ def build_deployment_inputs(
     retained_inventory: dict,
     retained_assignments: dict,
     compiler_commit: str,
+    contract_deployment_references: dict | None = None,
 ) -> dict:
     try:
         artifacts = artifacts_from(inventory)
@@ -333,6 +335,16 @@ def build_deployment_inputs(
                 "capacity_assignments": capacity_assignments,
             }
         }
+
+        if contract_deployment_references is not None:
+            result["deployment"]["contract_catalogs"] = {
+                key: build_contract_catalog(
+                    artifact,
+                    contract_deployment_references,
+                    account_id=account,
+                )
+                for key, artifact in sorted(artifacts.items())
+            }
 
         return copy.deepcopy(result)
 

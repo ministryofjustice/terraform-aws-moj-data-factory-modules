@@ -103,6 +103,12 @@ def add_deployment_commands(commands: Any) -> None:
         )
 
     prepare.add_argument(
+        "--contract-deployment-references",
+        type=Path,
+        help="JSON output containing deployed contract capability references",
+    )
+
+    prepare.add_argument(
         "--compiler-commit",
         required=True,
     )
@@ -227,6 +233,11 @@ def run_deployment_command(
                 args.retained_assignments
             ),
             compiler_commit=args.compiler_commit,
+            contract_deployment_references=(
+                load_json_object(args.contract_deployment_references)
+                if args.contract_deployment_references is not None
+                else None
+            ),
         )
     if args.command == "build-deployment-bundle":
         return build_deployment_bundle(
