@@ -24,7 +24,14 @@ resource "aws_lambda_function" "generation" {
   kms_key_arn                    = var.lambda_environment_kms_key_arn
 
   environment {
-    variables = local.generation_environment
+    variables = merge(
+      local.generation_environment,
+      var.candidate_storage == null ? {} : {
+        CONTRACT_CANDIDATE_BUCKET       = var.candidate_storage.bucket_name
+        CONTRACT_CANDIDATE_BUCKET_OWNER = var.candidate_storage.bucket_owner_account_id
+        CONTRACT_CANDIDATE_KMS_KEY_ARN  = var.candidate_storage.kms_key_arn
+      },
+    )
   }
 
   vpc_config {

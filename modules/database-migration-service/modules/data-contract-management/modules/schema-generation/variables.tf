@@ -371,3 +371,15 @@ variable "tags" {
   default     = {}
   nullable    = false
 }
+
+variable "candidate_storage" {
+  description = "Versioned S3 storage for schema candidates generated during contract assessment."
+
+  type = object({
+    bucket_name             = string
+    bucket_owner_account_id = string
+    kms_key_arn             = string
+  })
+
+  default = null
+}
