@@ -149,3 +149,30 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "contract_catalogs" {
+  description = "Prepared contract catalogs keyed by source and extraction generation."
+  type = map(object({
+    catalog_version        = number
+    environment            = string
+    account_id             = string
+    region                 = string
+    configuration_revision = string
+    artifact_revision      = string
+
+    contracts = object({
+      tables = list(object({
+        source        = string
+        database_name = string
+        schema_name   = string
+        table_name    = string
+        generation    = object({ kind = string, arn = string })
+        validation    = object({ kind = string, arn = string })
+      }))
+      registration = object({ kind = string, arn = string })
+      registry     = object({ table_name = string, arn = string })
+    })
+  }))
+  default  = {}
+  nullable = false
+}

@@ -6,6 +6,7 @@ output "deployments" {
     for key, artifact in var.compiled_artifacts : key => {
       compiled_artifact   = artifact
       deployment_bindings = module.service[key].deployment_bindings
+      contract_catalog    = lookup(var.contract_catalogs, key, null)
 
       runtime = {
         function_name = module.runtime[
