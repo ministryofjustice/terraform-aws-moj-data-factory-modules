@@ -117,3 +117,39 @@ def test_catalog_rejects_unqualified_registration_arn(references):
 
     with pytest.raises(ConfigurationError, match="published numeric Lambda version"):
         build_contract_catalog(artifact, references, account_id=ACCOUNT_ID)
+
+def test_runtime_configuration_pins_the_catalog_document(references):
+    import hashlib
+    import json
+
+    from ingestion_config.compiler import canonical_json
+    from ingestion_config.contract_runtime_inputs import (
+        build_contract_runtime_configuration,
+    )
+
+    _, artifact = deployment(*TABLES[0])
+    artifact["extraction_generation"] = "sandbox-v1"
+    catalog = build_contract_catalog(artifact, references, account_id=ACCOUNT_ID)
+
+    configuration = json.loads(
+        build_contract_runtime_configuration(
+            artifact=artifact,
+            catalog=catalog,
+            registry={"table_name": "ingestion-registry"},
+            published_documents={
+                "bucket_name": "example-config",
+                "bucket_owner": ACCOUNT_ID,
+                "prefix": "services/sandbox-postgres/",
+            },
+            settings={},
+            authorised_reviewers=[],
+        )
+    )
+
+    assert configuration["registry_table_name"] == "ingestion-registry"
+    assert configuration["lookup"]["source"] == "sandbox-postgres"
+    assert configuration["lookup"]["table_name"] == "dms_integration_test"
+    assert configuration["documents"]["extraction_generation"] == "sandbox-v1"
+    assert configuration["documents"]["catalog_sha256"] == hashlib.sha256(
+        canonical_json(catalog).encode("utf-8")
+    ).hexdigest()
