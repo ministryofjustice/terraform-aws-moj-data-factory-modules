@@ -12,6 +12,7 @@ from ingestion_config.published_documents import DocumentReference
 from ingestion_config.published_resolver import TableLookup
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.contract_policy import ContractPolicy
+from ingestion_registry.deployments import DeploymentCatalog
 from ingestion_registry.identity import TableIdentity
 
 from dms_runtime.contract_factory import (
@@ -105,26 +106,31 @@ def _parse_configuration(environment):
                 )
 
         documents = document["documents"]
-
-        if (
-            not isinstance(documents, dict)
-            or set(documents) != {
-                "bucket_name",
-                "prefix",
-                "bucket_owner_account_id",
-                "manifest",
-                "artifact",
-                "catalog",
-            }
-        ):
-            raise ValueError(
-                "Published document configuration is incomplete"
-            )
-
-        references = {
-            name: DocumentReference(**documents[name])
-            for name in ("manifest", "artifact", "catalog")
+        storage_fields = {
+            "bucket_name",
+            "prefix",
+            "bucket_owner_account_id",
         }
+        reference_fields = {"manifest", "artifact", "catalog"}
+        locator_fields = {"extraction_generation", "catalog_sha256"}
+
+        if not isinstance(documents, dict):
+            raise ValueError("Published document configuration is incomplete")
+
+        if set(documents) == storage_fields | reference_fields:
+            references = {
+                name: DocumentReference(**documents[name])
+                for name in ("manifest", "artifact", "catalog")
+            }
+        elif set(documents) == storage_fields | locator_fields:
+            digest = documents["catalog_sha256"]
+            if not isinstance(digest, str) or not re.fullmatch(
+                r"[0-9a-f]{64}", digest
+            ):
+                raise ValueError("Invalid deployment catalog SHA-256")
+            references = None
+        else:
+            raise ValueError("Published document configuration is incomplete")
 
         supplied_settings = dict(document["settings"])
 
@@ -237,6 +243,41 @@ def build_handler(
         ),
         table_name=configuration["table_name"],
     )
+
+    if references is None:
+        digest = documents["catalog_sha256"]
+        record = DeploymentCatalog(registry).get(
+            environment=lookup.environment,
+            account_id=lookup.account_id,
+            region=lookup.region,
+            source=lookup.source,
+            extraction_generation=documents["extraction_generation"],
+            artifact_revision=lookup.artifact_revision,
+            catalog_sha256=digest,
+        )
+        if record is None:
+            raise ValueError("Pinned contract deployment is not registered")
+
+        if (
+            record.get("record_type") != "DEPLOYMENT_REFERENCE"
+            or record.get("configuration_revision") != lookup.configuration_revision
+        ):
+            raise ValueError("Registered deployment does not match the selected revision")
+
+        registered = record.get("document_references")
+        if not isinstance(registered, dict) or set(registered) != {
+            "manifest",
+            "artifact",
+            "catalog",
+        }:
+            raise ValueError("Registered deployment document references are incomplete")
+
+        references = {
+            name: DocumentReference(**registered[name])
+            for name in ("manifest", "artifact", "catalog")
+        }
+        if references["catalog"].sha256 != digest:
+            raise ValueError("Registered contract catalog digest does not match")
 
     s3_client = session.client(
         "s3",
