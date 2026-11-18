@@ -45,6 +45,23 @@ data "aws_iam_policy_document" "runtime" {
     resources = [var.registry.table_arn]
   }
 
+  dynamic "statement" {
+    for_each = var.registry_kms_key_arn == null ? [] : [var.registry_kms_key_arn]
+
+    content {
+      sid       = "DecryptIngestionRegistry"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = [statement.value]
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["dynamodb.${var.service_context.region}.amazonaws.com"]
+      }
+    }
+  }
+
   statement {
     sid       = "ReadPublishedDocumentVersions"
     effect    = "Allow"

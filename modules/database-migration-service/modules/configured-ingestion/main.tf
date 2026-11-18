@@ -71,10 +71,11 @@ module "runtime" {
     database_name = each.value.runtime_configuration.source_endpoint.database_name
   }
 
-  artifact            = var.artifact
-  registry            = var.registry
-  published_documents = var.runtime_settings[each.key].published_documents
-  source_credentials  = var.runtime_settings[each.key].source_credentials
+  artifact             = var.artifact
+  registry             = var.registry
+  registry_kms_key_arn = var.registry_kms_key_arn
+  published_documents  = var.runtime_settings[each.key].published_documents
+  source_credentials   = var.runtime_settings[each.key].source_credentials
   contract_required_generations = toset([
     for key, artifact in var.compiled_artifacts :
     artifact.extraction_generation

@@ -185,3 +185,9 @@ variable "contract_required_generations" {
   default     = []
   nullable    = false
 }
+
+variable "registry_kms_key_arn" {
+  description = "KMS key ARN for the shared Ingestion Registry table."
+  type        = string
+  default     = null
+}
