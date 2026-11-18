@@ -32,6 +32,36 @@ data "aws_iam_policy_document" "generation" {
     resources = [var.source_config.secret_arn]
   }
 
+  dynamic "statement" {
+    for_each = var.contract_control == null ? [] : [var.contract_control]
+    iterator = control
+
+    content {
+      sid       = "ReadContractVersionReservation"
+      effect    = "Allow"
+      actions   = ["dynamodb:GetItem"]
+      resources = [control.value.table_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.contract_control == null ? [] : [var.contract_control]
+    iterator = control
+
+    content {
+      sid       = "DecryptContractControlTable"
+      effect    = "Allow"
+      actions   = ["kms:Decrypt"]
+      resources = [control.value.kms_key_arn]
+
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["dynamodb.${data.aws_region.current.region}.${data.aws_partition.current.dns_suffix}"]
+      }
+    }
+  }
+
   statement {
     sid       = "ReadExistingContracts"
     effect    = "Allow"

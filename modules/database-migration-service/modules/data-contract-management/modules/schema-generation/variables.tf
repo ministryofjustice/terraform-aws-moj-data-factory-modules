@@ -383,3 +383,14 @@ variable "candidate_storage" {
 
   default = null
 }
+
+variable "contract_control" {
+  description = "Ingestion Registry used to verify contract version reservations."
+  type = object({
+    table_name  = string
+    table_arn   = string
+    kms_key_arn = string
+    environment = string
+  })
+  default = null
+}

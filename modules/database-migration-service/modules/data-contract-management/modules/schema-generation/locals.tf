@@ -18,5 +18,9 @@ locals {
     var.source_config.oracle_sid == null ? {} : {
       DATABASE_SID = var.source_config.oracle_sid
     },
+    var.contract_control == null ? {} : {
+      CONTRACT_CONTROL_TABLE = var.contract_control.table_name
+      CONTRACT_ENVIRONMENT   = var.contract_control.environment
+    },
   )
 }
