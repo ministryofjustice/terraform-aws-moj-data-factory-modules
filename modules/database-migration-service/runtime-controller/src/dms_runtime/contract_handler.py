@@ -2,6 +2,8 @@ import json
 import re
 
 from dms_runtime.contract_factory import ContractRuntime
+from ingestion_registry.identity import TableIdentity
+from ingestion_registry.ownership import OwnershipClaim
 
 
 MAX_REQUEST_BYTES = 16384
@@ -19,6 +21,12 @@ REQUIRED_FIELDS = {
         "request_id",
         "contract_version",
         "expected_request_fingerprint",
+    },
+    "PIN_CONTRACT": {
+        "ingestion_id",
+        "execution_id",
+        "fencing_token",
+        "attempt",
     },
 }
 
@@ -77,6 +85,17 @@ def validate_contract_request(event):
             f"{operation} requires exactly: "
             + ", ".join(sorted(expected))
         )
+
+    if operation == "PIN_CONTRACT":
+        for field in ("ingestion_id", "execution_id"):
+            if not _text(event[field], max_bytes=256):
+                raise ContractRequestError(f"Invalid {field}")
+
+        for field in ("fencing_token", "attempt"):
+            if type(event[field]) is not int or event[field] < 1:
+                raise ContractRequestError(
+                    f"{field} must be a positive integer"
+                )
 
     if "request_id" in event:
         if not _text(event["request_id"], max_bytes=256):
@@ -171,6 +190,36 @@ class ContractHandler:
                 preparation_fingerprint=request[
                     "preparation_fingerprint"
                 ],
+            )
+
+        if operation == "PIN_CONTRACT":
+            pinning = self.runtime.pinning
+            ingestion_id = request["ingestion_id"]
+            ingestion = pinning.registry._read(
+                f"INGESTION#{ingestion_id}",
+                "META",
+            )
+
+            if (
+                ingestion is None
+                or TableIdentity(**ingestion["table_identity"]) != table
+            ):
+                raise ContractRequestError(
+                    "Ingestion is outside the configured table"
+                )
+
+            claim = OwnershipClaim(
+                ingestion_id=ingestion_id,
+                execution_id=request["execution_id"],
+                fencing_token=request["fencing_token"],
+                attempt=request["attempt"],
+                lease_expires_at=0,
+                recovery_required=False,
+            )
+            return pinning.pin(
+                claim,
+                update_id="select-contract",
+                expected_revision=0,
             )
 
         return coordinator.advance(
