@@ -58,6 +58,9 @@ resource "aws_lambda_function" "runtime" {
           var.published_documents.bucket_owner
         )
         SOURCE_CREDENTIAL_MODE = var.source_credentials.mode
+        CONTRACT_REQUIRED_GENERATIONS = jsonencode(
+          sort(tolist(var.contract_required_generations))
+        )
       },
       var.source_credentials.mode == "synchronise_then_test" ? {
         CREDENTIAL_SYNC_FUNCTION_ARN = var.source_credentials.sync_function_arn

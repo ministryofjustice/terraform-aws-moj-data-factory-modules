@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from collections.abc import Mapping
@@ -202,6 +203,17 @@ def build_handler(
         lambda_client,
     )
 
+    contract_required_generations = json.loads(
+        environment.get("CONTRACT_REQUIRED_GENERATIONS", "[]")
+    )
+    if not isinstance(contract_required_generations, list) or any(
+        not isinstance(generation, str) or not generation.strip()
+        for generation in contract_required_generations
+    ):
+        raise ValueError(
+            "CONTRACT_REQUIRED_GENERATIONS must be a JSON array of generation names"
+        )
+
     owned_actions = OwnedRuntimeActions(
         guard_factory=RuntimeGuardFactory(
             registry,
@@ -211,6 +223,7 @@ def build_handler(
         inspection=inspection,
         preflight=preflight,
         credential_sync_function_arn=sync_arn,
+        contract_required_generations=frozenset(contract_required_generations),
     )
 
     return RuntimeHandler(

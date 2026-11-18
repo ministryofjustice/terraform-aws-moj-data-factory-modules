@@ -13,6 +13,7 @@ from dms_runtime.requests import (
     OWNED_ACTIONS,
     RuntimeRequest,
 )
+from ingestion_registry.progress import IngestionProgress
 
 
 class OwnedRuntimeActions:
@@ -26,6 +27,7 @@ class OwnedRuntimeActions:
         inspection: TaskInspection,
         preflight: SourcePreflight,
         credential_sync_function_arn: str | None,
+        contract_required_generations: frozenset[str] = frozenset(),
     ) -> None:
         if not isinstance(guard_factory, RuntimeGuardFactory):
             raise ValueError(
@@ -62,6 +64,7 @@ class OwnedRuntimeActions:
         self.dms = dms_client
         self.inspection = inspection
         self.preflight = preflight
+        self.contract_required_generations = contract_required_generations
         self.credential_sync_function_arn = (
             credential_sync_function_arn
         )
@@ -109,6 +112,25 @@ class OwnedRuntimeActions:
                 "outcome": "SUCCEEDED",
                 "preflight": result,
             }
+
+        if (
+            request.action in {"start", "resume"}
+            and binding["extraction_generation"] in self.contract_required_generations
+        ):
+            guard(binding, request.action)
+            stage = IngestionProgress(self.guard_factory.registry).read_stage(
+                ingestion_id=request.ingestion_id,
+                stage="CONTRACT",
+            )
+            if (
+                stage is None
+                or stage.get("status") != "SUCCEEDED"
+                or (stage.get("result_reference") or {}).get("kind")
+                != "registered-contract"
+            ):
+                raise TaskOperationBlocked(
+                    "A registered contract must be pinned before starting or resuming DMS"
+                )
 
         control = TaskControl(
             self.dms,

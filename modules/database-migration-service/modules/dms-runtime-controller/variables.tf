@@ -178,3 +178,10 @@ variable "tags" {
   default     = {}
   nullable    = false
 }
+
+variable "contract_required_generations" {
+  description = "Extraction generations that require a persisted contract pin before starting or resuming DMS."
+  type        = set(string)
+  default     = []
+  nullable    = false
+}

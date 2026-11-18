@@ -75,6 +75,12 @@ module "runtime" {
   registry            = var.registry
   published_documents = var.runtime_settings[each.key].published_documents
   source_credentials  = var.runtime_settings[each.key].source_credentials
+  contract_required_generations = toset([
+    for key, artifact in var.compiled_artifacts :
+    artifact.extraction_generation
+    if artifact.runtime_configuration.source == each.key &&
+    contains(keys(var.contract_runtimes), key)
+  ])
 
   dms_resources = {
     replication_instance_arns = distinct(flatten([
