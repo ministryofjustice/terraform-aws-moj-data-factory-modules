@@ -69,6 +69,17 @@ data "aws_iam_policy_document" "generation" {
     resources = sort(tolist(var.contract_object_arns))
   }
 
+  dynamic "statement" {
+    for_each = var.candidate_storage == null ? [] : [var.candidate_storage]
+
+    content {
+      sid       = "ReadCandidateObjectVersions"
+      effect    = "Allow"
+      actions   = ["s3:GetObjectVersion"]
+      resources = ["arn:aws:s3:::${statement.value.bucket_name}/candidates/*"]
+    }
+  }
+
   statement {
     sid       = "PublishNewContracts"
     effect    = "Allow"
