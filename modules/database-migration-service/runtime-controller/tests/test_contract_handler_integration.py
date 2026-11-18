@@ -203,3 +203,55 @@ def test_handler_cannot_select_another_table_before_generation(
     setup["invocation"].invoke.assert_not_called()
     setup["secret_lookup"].assert_not_called()
     assert registration_count(setup) == 0
+
+def test_handler_pins_active_contract_for_owned_ingestion(lifecycle_handler):
+    from ingestion_registry.ownership import IngestionOwnership, OwnershipLost
+    from ingestion_registry.requests import NewIngestionRequest
+
+    setup = lifecycle_handler
+    prepared, waiting = prepare_and_assess(setup)
+    request = setup["lifecycle"].read(
+        table=setup["table"],
+        request_id=prepared["request_id"],
+    )
+    approve_request({**setup, "orchestration_request": request})
+    activated = resume(setup, prepared, waiting)
+    registered = activated["selection"]["registered_contract"]
+
+    registry = setup["registry"]
+    admitted = registry.admit(
+        NewIngestionRequest(
+            request_id="handler-pin-ingestion",
+            operation="INITIAL_INGESTION",
+            table=setup["table"],
+            configuration_revision="a" * 64,
+            artifact_revision="b" * 64,
+            extraction_generation="generation-one",
+        )
+    )
+    claim = IngestionOwnership(registry).claim(
+        ingestion_id=admitted.ingestion_id,
+        execution_id="handler-pin-execution",
+    )
+    fields = {
+        "ingestion_id": claim.ingestion_id,
+        "execution_id": claim.execution_id,
+        "fencing_token": claim.fencing_token,
+        "attempt": claim.attempt,
+    }
+
+    result = handle(setup, "PIN_CONTRACT", **fields)
+
+    assert result["stage"] == "CONTRACT"
+    assert result["status"] == "SUCCEEDED"
+    assert result["result_reference"]["contract_object_version_id"] == (
+        registered["object_reference"]["version_id"]
+    )
+    assert handle(setup, "PIN_CONTRACT", **fields) == result
+
+    with pytest.raises(OwnershipLost):
+        handle(
+            setup,
+            "PIN_CONTRACT",
+            **{**fields, "fencing_token": claim.fencing_token + 1},
+        )
