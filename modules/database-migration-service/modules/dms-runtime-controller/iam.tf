@@ -45,6 +45,25 @@ data "aws_iam_policy_document" "runtime" {
     resources = [var.registry.table_arn]
   }
 
+  statement {
+    sid       = "ReleaseRuntimeCommandLock"
+    effect    = "Allow"
+    actions   = ["dynamodb:DeleteItem"]
+    resources = [var.registry.table_arn]
+
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["DMSTASK#*"]
+    }
+
+    condition {
+      test     = "Null"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["false"]
+    }
+  }
+
   dynamic "statement" {
     for_each = var.registry_kms_key_arn == null ? [] : [var.registry_kms_key_arn]
 
