@@ -6,3 +6,4 @@ setuptools>=70,<82
 sqlalchemy>=2.0.38
 aws-xray-sdk>=2.14.0
 psycopg2-binary>=2.9.9
+psycopg-binary>=3.3.9
