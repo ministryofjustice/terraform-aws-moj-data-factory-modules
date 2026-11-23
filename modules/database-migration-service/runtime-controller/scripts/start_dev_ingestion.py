@@ -48,7 +48,7 @@ def main():
     parser.add_argument("--execution-id", required=True)
     parser.add_argument(
         "--operation",
-        choices=("INITIAL_INGESTION", "RE_INGESTION"),
+        choices=("INITIAL_INGESTION", "REINGESTION"),
         default="INITIAL_INGESTION",
     )
     parser.add_argument("--start", action="store_true")
@@ -177,6 +177,17 @@ def main():
         raise RuntimeError(f"Contract pin did not succeed: {json.dumps(pin)}")
 
     print(json.dumps({"contract_pin": pin["result_reference"]}, indent=2), flush=True)
+
+    if args.request_id == "325-dev-oracle-ingestion-01":
+        reference = pin["result_reference"]
+        if (
+            reference.get("contract_version") != "v4"
+            or reference.get("contract_object_version_id")
+            != "ZK6UY6PAxd5jhPNfZww6qYuflXFdF5U8"
+            or reference.get("contract_object_sha256")
+            != "3ecd73af4ff8939987ebac33fc3d9d76e3ab81b58a34568839c88d7f62745e3b"
+        ):
+            raise SystemExit("Oracle smoke test pinned an unexpected contract. DMS start was skipped.")
 
     start = invoke(lambda_client, args.runtime_lambda, {
         "request_version": 1,

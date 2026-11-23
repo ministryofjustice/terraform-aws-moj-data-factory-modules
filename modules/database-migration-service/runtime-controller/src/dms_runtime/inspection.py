@@ -95,17 +95,47 @@ class TaskInspection:
 
         stats = task.get("ReplicationTaskStats") or {}
 
+        start_recorded = bool(
+            task.get("ReplicationTaskStartDate")
+            or stats.get("StartDate")
+            or stats.get("FreshStartDate")
+            or stats.get("FullLoadStartDate")
+            or stats.get("FullLoadFinishDate")
+        )
+        activity_fields = (
+            "FullLoadProgressPercent",
+            "ElapsedTimeMillis",
+            "TablesLoaded",
+            "TablesLoading",
+            "TablesQueued",
+            "TablesErrored",
+        )
+        pristine_ready = (
+            status == "ready"
+            and task.get("MigrationType") == "full-load-and-cdc"
+            and not start_recorded
+            and not task.get("CdcStartPosition")
+            and all(
+                type(stats.get(field)) is int and stats[field] == 0
+                for field in activity_fields
+            )
+        )
+        has_started = bool(
+            start_recorded
+            or any(
+                isinstance(stats.get(field), (int, float))
+                and stats[field] > 0
+                for field in activity_fields
+            )
+            or (task.get("RecoveryCheckpoint") and not pristine_ready)
+        )
+
         return {
             "replication_task_arn": expected["ReplicationTaskArn"],
             "migration_type": expected["MigrationType"],
             "status": status,
             "stop_reason": task.get("StopReason"),
-            "has_started": bool(
-                task.get("ReplicationTaskStartDate")
-                or task.get("RecoveryCheckpoint")
-                or stats.get("StartDate")
-                or stats.get("FreshStartDate")
-            ),
+            "has_started": has_started,
             "full_load_progress_percent": stats.get(
                 "FullLoadProgressPercent"
             ),
