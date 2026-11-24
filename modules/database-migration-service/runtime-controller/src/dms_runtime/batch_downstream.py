@@ -25,9 +25,19 @@ class BatchDownstream:
         *,
         resolve_deployment: Callable[[str], Mapping[str, Any]],
         read_stage: Callable[..., dict[str, Any] | None],
+        context_reader: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self._resolve_deployment = resolve_deployment
         self._read_stage = read_stage
+        self._context_reader = context_reader
+
+    def execution_context(
+        self,
+        ingestion_id: str,
+    ) -> dict[str, Any] | None:
+        if self._context_reader is None:
+            return None
+        return self._context_reader(ingestion_id)
 
     def load_inputs(self, ingestion_id: str) -> BatchInputs:
         deployment = self._resolve_deployment(ingestion_id)

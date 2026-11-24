@@ -61,7 +61,13 @@ def shutdown_setup():
     claim = SimpleNamespace(ingestion_id=INGESTION_ID)
 
     def build(stage_type, adapter):
-        return stage_type(downstream=Mock(), progress=progress, adapter=adapter)
+        return stage_type(
+            downstream=Mock(
+                execution_context=Mock(return_value=None)
+            ),
+            progress=progress,
+            adapter=adapter,
+        )
 
     return stages, claim, build
 

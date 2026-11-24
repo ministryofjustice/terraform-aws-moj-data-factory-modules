@@ -214,3 +214,78 @@ def test_bootstrap_rejects_wrong_owner_before_cdc_dispatch(
     lookup.resolve.assert_not_called()
     readiness.advance.assert_not_called()
     drain.advance.assert_not_called()
+
+@pytest.mark.parametrize("version", ["2", "", "v1"])
+def test_bootstrap_rejects_unknown_context_version(
+    bootstrap_setup,
+    version,
+):
+    environment, _, _, progress, _ = bootstrap_setup
+    environment = {
+        **environment,
+        "BATCH_CONTEXT_VERSION": version,
+    }
+
+    with pytest.raises(
+        ValueError,
+        match="BATCH_CONTEXT_VERSION",
+    ):
+        batch_bootstrap.build_handler(
+            environment,
+            session=Mock(),
+        )
+
+    progress.record_stage.assert_not_called()
+
+
+@pytest.mark.parametrize("version", [None, "legacy", "1"])
+def test_bootstrap_selects_context_reader(
+    bootstrap_setup,
+    monkeypatch,
+    version,
+):
+    environment, event, lookup, _, _ = bootstrap_setup
+    environment = dict(environment)
+
+    if version is not None:
+        environment["BATCH_CONTEXT_VERSION"] = version
+
+    reader = Mock(return_value={"context_version": 1})
+    monkeypatch.setattr(
+        batch_bootstrap,
+        "read_downstream_context",
+        reader,
+    )
+
+    processing = Mock()
+    processing.advance.return_value = {
+        "stage": "PROCESSING",
+        "status": "RUNNING",
+    }
+    factory = Mock(return_value=processing)
+    monkeypatch.setattr(
+        batch_bootstrap,
+        "BatchProcessing",
+        factory,
+    )
+
+    handler = batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+        adapter_factories={"processing": Mock()},
+    )
+    handler(event, None)
+
+    downstream = factory.call_args.kwargs["downstream"]
+    result = downstream.execution_context("ingestion-one")
+
+    if version == "1":
+        assert result == {"context_version": 1}
+        reader.assert_called_once_with(
+            registry=batch_bootstrap.IngestionRegistry.return_value,
+            lookup=lookup,
+            ingestion_id="ingestion-one",
+        )
+    else:
+        assert result is None
+        reader.assert_not_called()

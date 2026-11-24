@@ -6,6 +6,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from dms_runtime.batch_downstream import BatchDownstream
+from dms_runtime.downstream_context import validate_request_context
 from ingestion_registry.ownership import OwnershipClaim
 from ingestion_registry.progress import IngestionProgress, ProgressConflict
 
@@ -86,6 +87,33 @@ class _BatchStage:
             )
 
         request = self._build_request(ingestion_id)
+        existing_reference = (
+            current.get("result_reference", {}) if current else {}
+        )
+        legacy_running = (
+            current is not None
+            and "context_version" not in existing_reference
+        )
+
+        if not legacy_running and self.stage in {
+            "PROCESSING",
+            "HISTORY_BASELINE",
+            "PUBLICATION",
+            "RECONCILIATION",
+        }:
+            context = self._downstream.execution_context(ingestion_id)
+            if context is not None:
+                request["execution_context"] = context
+                validate_request_context(request)
+
+        if (
+            existing_reference.get("context_version") == "1"
+            and "execution_context" not in request
+        ):
+            raise ProgressConflict(
+                "Context-aware operation requires its context reader"
+            )
+
         request_fingerprint = _fingerprint(request)
         operation_id = _fingerprint(
             {"ingestion_id": ingestion_id, "stage": self.stage}
@@ -95,6 +123,9 @@ class _BatchStage:
             "operation_id": operation_id,
             "request_fingerprint": request_fingerprint,
         }
+
+        if "execution_context" in request:
+            reservation["context_version"] = "1"
 
         if current is None:
             current = self._progress.record_stage(
