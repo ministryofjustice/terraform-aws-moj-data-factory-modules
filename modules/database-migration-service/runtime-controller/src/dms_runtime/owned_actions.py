@@ -28,6 +28,7 @@ class OwnedRuntimeActions:
         preflight: SourcePreflight,
         credential_sync_function_arn: str | None,
         contract_required_generations: frozenset[str] = frozenset(),
+        raw_batch_action: Any = None,
     ) -> None:
         if not isinstance(guard_factory, RuntimeGuardFactory):
             raise ValueError(
@@ -60,6 +61,10 @@ class OwnedRuntimeActions:
                     "in the authorised account and region"
                 )
 
+        if raw_batch_action is not None and not callable(raw_batch_action):
+            raise ValueError("raw_batch_action must be callable")
+        self.raw_batch_action = raw_batch_action
+
         self.guard_factory = guard_factory
         self.dms = dms_client
         self.inspection = inspection
@@ -83,6 +88,11 @@ class OwnedRuntimeActions:
             )
 
         guard = self.guard_factory(request, binding)
+
+        if request.action == "commit_raw_batch":
+            if self.raw_batch_action is None:
+                raise TaskOperationBlocked("Raw batch handoff is not configured")
+            return self.raw_batch_action(request, binding, guard)
 
         if request.action == "preflight":
             resources = binding["resources"]

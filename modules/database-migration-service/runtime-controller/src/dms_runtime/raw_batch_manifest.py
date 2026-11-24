@@ -18,8 +18,6 @@ class RawBatchManifestConflict(ValueError):
 
 
 class RawBatchManifestProducer:
-    """Commit the exact Raw input selected by completed extraction."""
-
     def __init__(
         self,
         *,
@@ -41,6 +39,183 @@ class RawBatchManifestProducer:
         self._bucket_name = bucket_name
         self._prefix = prefix
         self._expected_bucket_owner = expected_bucket_owner
+
+    def select_once(self, claim, *, deployment, select):
+        key_id = hashlib.sha256(
+            claim.ingestion_id.encode("utf-8")
+        ).hexdigest()
+        key = f"{self._prefix}{key_id}/selection.json"
+        arguments = {
+            "Bucket": self._bucket_name,
+            "Key": key,
+            "ExpectedBucketOwner": self._expected_bucket_owner,
+        }
+
+        def read_selection():
+            listing = self._client.list_objects_v2(
+                Bucket=self._bucket_name,
+                Prefix=key,
+                MaxKeys=1,
+                ExpectedBucketOwner=self._expected_bucket_owner,
+            )
+            if not any(
+                item.get("Key") == key
+                for item in listing.get("Contents", [])
+            ):
+                return None
+            try:
+                response = self._client.get_object(**arguments)
+            except ClientError as error:
+                code = error.response.get("Error", {}).get("Code")
+                if code in {"NoSuchKey", "404"}:
+                    return None
+                raise
+
+            body = response["Body"]
+            try:
+                raw = body.read(MAX_MANIFEST_BYTES + 1)
+            finally:
+                body.close()
+
+            if (
+                not response.get("VersionId")
+                or response["VersionId"] == "null"
+                or len(raw) > MAX_MANIFEST_BYTES
+            ):
+                raise RawBatchManifestConflict(
+                    "Invalid frozen Raw selection"
+                )
+
+            try:
+                document = json.loads(raw)
+                objects = tuple(
+                    S3ObjectReference(**item)
+                    for item in document["objects"]
+                )
+                expected = _manifest_bytes(
+                    claim.ingestion_id, deployment, objects
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise RawBatchManifestConflict(
+                    "Invalid frozen Raw selection"
+                ) from error
+
+            if raw != expected:
+                raise RawBatchManifestConflict(
+                    "Selection differs from pinned ingestion"
+                )
+            return objects
+
+        existing = read_selection()
+        if existing is not None:
+            return existing
+
+        objects = tuple(select())
+        expected = _manifest_bytes(
+            claim.ingestion_id, deployment, objects
+        )
+
+        try:
+            self._client.put_object(
+                **arguments,
+                Body=expected,
+                ContentType="application/json",
+                IfNoneMatch="*",
+            )
+        except ClientError as error:
+            code = error.response.get("Error", {}).get("Code")
+            if code not in {"PreconditionFailed", "412"}:
+                raise
+
+        frozen = read_selection()
+        if frozen is None:
+            raise RawBatchManifestConflict(
+                "Frozen Raw selection was not found"
+            )
+        return frozen
+
+    def completed(self, claim, *, deployment):
+        stage = self._progress.read_stage(
+            ingestion_id=claim.ingestion_id,
+            stage="EXTRACTION",
+        )
+        if stage is None or stage.get("status") == "RUNNING":
+            return None
+        if stage.get("status") != "SUCCEEDED":
+            raise RawBatchManifestConflict(
+                "Extraction requires explicit recovery"
+            )
+
+        evidence = stage.get("result_reference") or {}
+        if evidence.get("kind") != "raw-batch":
+            raise RawBatchManifestConflict(
+                "Expected completed Raw batch evidence"
+            )
+
+        reference = S3ObjectReference(**{
+            field: evidence[field]
+            for field in (
+                "bucket_name", "object_key", "version_id", "sha256"
+            )
+        })
+        expected_prefix = (
+            self._prefix
+            + hashlib.sha256(
+                claim.ingestion_id.encode("utf-8")
+            ).hexdigest()
+            + "/"
+        )
+        if (
+            reference.bucket_name != self._bucket_name
+            or not reference.object_key.startswith(expected_prefix)
+        ):
+            raise RawBatchManifestConflict(
+                "Manifest is outside this ingestion boundary"
+            )
+
+        response = self._client.get_object(
+            Bucket=reference.bucket_name,
+            Key=reference.object_key,
+            VersionId=reference.version_id,
+            ExpectedBucketOwner=self._expected_bucket_owner,
+        )
+        body = response["Body"]
+        try:
+            raw = body.read(MAX_MANIFEST_BYTES + 1)
+        finally:
+            body.close()
+
+        if (
+            response.get("VersionId") != reference.version_id
+            or len(raw) > MAX_MANIFEST_BYTES
+            or hashlib.sha256(raw).hexdigest() != reference.sha256
+        ):
+            raise RawBatchManifestConflict(
+                "Recorded manifest version or checksum differs"
+            )
+
+        try:
+            document = json.loads(raw)
+            objects = [
+                S3ObjectReference(**item)
+                for item in document["objects"]
+            ]
+            expected = _manifest_bytes(
+                claim.ingestion_id, deployment, objects
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise RawBatchManifestConflict(
+                "Invalid recorded Raw manifest"
+            ) from error
+
+        if raw != expected:
+            raise RawBatchManifestConflict(
+                "Manifest differs from the pinned ingestion"
+            )
+
+        return self.commit(
+            claim, deployment=deployment, objects=objects
+        )
 
     def commit(
         self,

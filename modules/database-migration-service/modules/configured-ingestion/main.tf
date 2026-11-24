@@ -74,6 +74,7 @@ module "runtime" {
   artifact             = var.artifact
   registry             = var.registry
   registry_kms_key_arn = var.registry_kms_key_arn
+  raw_batch_handoff    = lookup(var.raw_batch_handoffs, each.key, null)
   published_documents  = var.runtime_settings[each.key].published_documents
   source_credentials   = var.runtime_settings[each.key].source_credentials
   contract_required_generations = toset([

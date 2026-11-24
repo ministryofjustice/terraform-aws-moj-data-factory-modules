@@ -19,6 +19,10 @@ from dms_runtime.lookup import PinnedRuntimeLookup
 from dms_runtime.owned_actions import OwnedRuntimeActions
 from dms_runtime.ownership import RuntimeContext
 from dms_runtime.preflight import SourcePreflight
+from dms_runtime.raw_batch_bootstrap import (
+    build_raw_batch_action,
+    read_raw_batch_settings,
+)
 
 
 def _required(
@@ -139,6 +143,11 @@ def build_handler(
             "or synchronise_then_test"
         )
 
+    raw_batch_settings = read_raw_batch_settings(
+        environment,
+        account_id=context.account_id,
+    )
+
     command_config = Config(
         region_name=context.region,
         retries={
@@ -214,6 +223,14 @@ def build_handler(
             "CONTRACT_REQUIRED_GENERATIONS must be a JSON array of generation names"
         )
 
+    full_load = FullLoadReadiness(inspection)
+    raw_batch_action = build_raw_batch_action(
+        raw_batch_settings,
+        client=document_client,
+        lookup=lookup,
+        readiness=full_load,
+    )
+
     owned_actions = OwnedRuntimeActions(
         guard_factory=RuntimeGuardFactory(
             registry,
@@ -224,12 +241,13 @@ def build_handler(
         preflight=preflight,
         credential_sync_function_arn=sync_arn,
         contract_required_generations=frozenset(contract_required_generations),
+        raw_batch_action=raw_batch_action,
     )
 
     return RuntimeHandler(
         lookup=lookup,
         inspection=inspection,
-        full_load=FullLoadReadiness(inspection),
+        full_load=full_load,
         owned_action_handler=owned_actions,
     )
 

@@ -17,6 +17,12 @@ resource "aws_iam_role" "runtime" {
 }
 
 data "aws_iam_policy_document" "runtime" {
+  source_policy_documents = (
+    var.raw_batch_handoff == null
+    ? []
+    : [data.aws_iam_policy_document.raw_batch[0].json]
+  )
+
   statement {
     sid    = "WriteControllerLogs"
     effect = "Allow"

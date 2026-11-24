@@ -18,6 +18,7 @@ READ_ACTIONS = frozenset(
 OWNED_ACTIONS = frozenset(
     {
         "preflight",
+        "commit_raw_batch",
         "start",
         "resume",
         "stop",
@@ -167,7 +168,7 @@ class RuntimeRequest:
                     "a non-empty table_status cursor"
                 )
 
-        if self.action == "full_load_status":
+        if self.action in {"full_load_status", "commit_raw_batch"}:
             _identifier(
                 "start_operation_id",
                 self.start_operation_id,
@@ -176,7 +177,7 @@ class RuntimeRequest:
         elif self.start_operation_id is not None:
             raise ValueError(
                 "start_operation_id is only supported "
-                "for full_load_status"
+                "for full_load_status or commit_raw_batch"
             )
 
         if self.action == "operation_status":
@@ -337,6 +338,9 @@ class RuntimeRequest:
             "ingestion_id": self.ingestion_id,
             "operation_id": self.operation_id,
         }
+
+        if self.action == "commit_raw_batch":
+            payload["start_operation_id"] = self.start_operation_id
 
         return hashlib.sha256(
             json.dumps(
