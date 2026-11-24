@@ -385,7 +385,7 @@ class TaskControl:
 
         else:
             allowed = (
-                task["status"] == "stopped"
+                task["status"] in {"stopped", "failed"}
                 and task.get("has_started") is True
             )
 
