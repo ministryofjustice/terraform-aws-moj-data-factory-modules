@@ -22,6 +22,7 @@ from dms_runtime.cdc_shutdown_actions import (
     CdcHistoryFinalisation,
 )
 from dms_runtime.lookup import PinnedRuntimeLookup
+from dms_runtime.downstream_context import read_downstream_context
 from dms_runtime.ownership import RuntimeContext
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.lifecycle import IngestionLifecycle
@@ -53,6 +54,7 @@ class _ConfiguredBatchStage:
         progress: IngestionProgress,
         adapter_factory: AdapterFactory | None,
         reconciliation_required: bool,
+        context_reader: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self._component = component
         self._stage_type = stage_type
@@ -60,6 +62,7 @@ class _ConfiguredBatchStage:
         self._progress = progress
         self._adapter_factory = adapter_factory
         self._reconciliation_required = reconciliation_required
+        self._context_reader = context_reader
 
     def advance(self, claim: OwnershipClaim) -> dict[str, Any]:
         if self._adapter_factory is None:
@@ -80,6 +83,7 @@ class _ConfiguredBatchStage:
         downstream = BatchDownstream(
             resolve_deployment=lambda _: deployment,
             read_stage=self._progress.read_stage,
+            context_reader=self._context_reader,
         )
         options = {
             "downstream": downstream,
@@ -143,6 +147,20 @@ def build_handler(
     )
     progress = IngestionProgress(registry)
     factories = dict(adapter_factories or {})
+    context_version = environment.get("BATCH_CONTEXT_VERSION", "legacy")
+    if context_version not in {"legacy", "1"}:
+        raise ValueError(
+            "BATCH_CONTEXT_VERSION must be legacy or 1"
+        )
+
+    def read_context(ingestion_id: str) -> dict[str, Any]:
+        return read_downstream_context(
+            registry=registry,
+            lookup=lookup,
+            ingestion_id=ingestion_id,
+        )
+
+    context_reader = read_context if context_version == "1" else None
 
     def stage(component: str, stage_type: type) -> _ConfiguredBatchStage:
         return _ConfiguredBatchStage(
@@ -152,11 +170,13 @@ def build_handler(
             progress=progress,
             adapter_factory=factories.get(component),
             reconciliation_required=reconciliation_required,
+            context_reader=context_reader,
         )
 
     downstream = BatchDownstream(
         resolve_deployment=lookup.resolve,
         read_stage=progress.read_stage,
+        context_reader=context_reader,
     )
     reconciliation = None
     if reconciliation_required and reconciliation_factory is not None:

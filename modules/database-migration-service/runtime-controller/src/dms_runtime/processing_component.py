@@ -9,6 +9,7 @@ from uuid import uuid4
 from botocore.exceptions import ClientError
 
 from ingestion_registry.references import S3ObjectReference
+from dms_runtime.downstream_context import validate_request_context
 
 
 MAX_REQUEST_BYTES = 128 * 1024
@@ -89,13 +90,17 @@ class ProcessingComponent:
         fingerprint: str,
         request: Any,
     ) -> dict[str, Any]:
-        if not isinstance(request, dict) or set(request) != {
-            "ingestion_id",
-            "deployment",
-            "contract",
-            "raw_batch",
-        }:
+        required_fields = {
+            "ingestion_id", "deployment", "contract", "raw_batch"
+        }
+        if not isinstance(request, dict) or set(request) not in (
+            required_fields,
+            required_fields | {"execution_context"},
+        ):
             raise ValueError("Invalid Processing request fields")
+
+        if "execution_context" in request:
+            validate_request_context(request)
 
         ingestion_id = request["ingestion_id"]
         if (
