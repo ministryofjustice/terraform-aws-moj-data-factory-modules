@@ -182,3 +182,23 @@ variable "registry_kms_key_arn" {
   type        = string
   default     = null
 }
+
+variable "raw_batch_handoffs" {
+  description = "Optional Raw batch handoff settings keyed by source."
+
+  type = map(object({
+    manifest = object({
+      bucket_name = string
+      prefix      = string
+      kms_key_arn = optional(string)
+    })
+    landings = set(object({
+      bucket_name  = string
+      prefix       = string
+      kms_key_arns = optional(set(string), [])
+    }))
+  }))
+
+  default  = {}
+  nullable = false
+}

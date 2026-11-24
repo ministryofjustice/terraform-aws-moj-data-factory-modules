@@ -46,6 +46,7 @@ resource "aws_lambda_function" "runtime" {
 
   environment {
     variables = merge(
+      local.raw_batch_config,
       {
         RUNTIME_ENVIRONMENT           = var.service_context.environment
         RUNTIME_ACCOUNT_ID            = var.service_context.account_id
