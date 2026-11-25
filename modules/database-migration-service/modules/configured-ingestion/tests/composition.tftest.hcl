@@ -188,3 +188,122 @@ run "reject_unassigned_generation" {
     var.capacity_assignments,
   ]
 }
+
+run "raw_history_is_disabled_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(output.raw_history_runtimes) == 0
+    error_message = "Existing services must not deploy Raw History unless explicitly configured."
+  }
+}
+
+run "raw_history_is_service_scoped" {
+  command = plan
+
+  variables {
+    raw_history_runtimes = jsondecode(
+      file("tests/fixtures/raw-history-runtimes.json")
+    )
+  }
+
+  override_module {
+    target = module.raw_history["sandbox-postgres"]
+
+    outputs = {
+      function_arn = "arn:aws:lambda:eu-west-2:111122223333:function:sandbox-sandbox-postgres-raw-history"
+
+      qualified_function_arn = "arn:aws:lambda:eu-west-2:111122223333:function:sandbox-sandbox-postgres-raw-history:7"
+
+      function_version = "7"
+
+      execution_role_arn = "arn:aws:iam::111122223333:role/example-raw-history"
+
+      operations_table = {
+        table_name = "sandbox-sandbox-postgres-raw-history-operations"
+        table_arn  = "arn:aws:dynamodb:eu-west-2:111122223333:table/sandbox-sandbox-postgres-raw-history-operations"
+      }
+
+      configuration_reference = {
+        bucket_name = "example-config"
+        object_key  = "components/raw-history/sandbox-postgres/example.json"
+        version_id  = "configuration-version-one"
+        sha256      = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      toset(keys(output.raw_history_runtimes)) ==
+      toset(["sandbox-postgres"])
+    )
+
+    error_message = "Only the explicitly configured service must receive a Raw History deployment."
+  }
+
+  assert {
+    condition = (
+      output.raw_history_runtimes["sandbox-postgres"].function_name ==
+      "sandbox-sandbox-postgres-raw-history"
+    )
+
+    error_message = "The receiver name must be service-scoped rather than extraction-generation-scoped."
+  }
+
+  assert {
+    condition = (
+      output.raw_history_runtimes["sandbox-postgres"].component_targets["standard"].kind == "lambda" &&
+      output.raw_history_runtimes["sandbox-postgres"].component_targets["standard"].arn ==
+      "arn:aws:lambda:eu-west-2:111122223333:function:sandbox-sandbox-postgres-raw-history:7"
+    )
+
+    error_message = "The component target must reference the published Lambda version."
+  }
+
+  assert {
+    condition     = length(output.deployments) == 3
+    error_message = "Adding Raw History must retain both PostgreSQL extraction generations and the Oracle deployment."
+  }
+}
+
+run "reject_raw_history_for_unknown_service" {
+  command = plan
+
+  variables {
+    raw_history_runtimes = {
+      for source, settings in jsondecode(
+        file("tests/fixtures/raw-history-runtimes.json")
+      ) :
+      "unknown-service" => settings
+    }
+  }
+
+  expect_failures = [
+    var.raw_history_runtimes,
+  ]
+}
+
+run "reject_history_profile_missing_from_yaml" {
+  command = plan
+
+  variables {
+    raw_history_runtimes = {
+      for source, settings in jsondecode(
+        file("tests/fixtures/raw-history-runtimes.json")
+      ) :
+      source => merge(settings, {
+        tables = [
+          for table in settings.tables :
+          merge(table, {
+            profile = "not-declared-in-yaml"
+          })
+        ]
+      })
+    }
+  }
+
+  expect_failures = [
+    terraform_data.raw_history_contract["sandbox-postgres"],
+  ]
+}

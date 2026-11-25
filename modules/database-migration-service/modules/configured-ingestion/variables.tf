@@ -202,3 +202,70 @@ variable "raw_batch_handoffs" {
   default  = {}
   nullable = false
 }
+
+variable "raw_history_runtimes" {
+  description = "Optional Raw History deployments keyed by configured service name."
+
+  type = map(object({
+    configuration_store = object({
+      bucket_name  = string
+      bucket_owner = string
+      prefix       = string
+      kms_key_arn  = string
+    })
+
+    history_bucket = object({
+      bucket_name  = string
+      bucket_owner = string
+      kms_key_arn  = string
+    })
+
+    operations_kms_key_arn = string
+
+    max_batch_bytes             = optional(number, 8 * 1024 * 1024)
+    deletion_protection_enabled = optional(bool, true)
+
+    tables = list(object({
+      schema_name    = string
+      table_name     = string
+      profile        = string
+      history_prefix = string
+
+      landings = list(object({
+        bucket_name  = string
+        bucket_owner = string
+        prefix       = string
+        kms_key_arns = optional(set(string), [])
+      }))
+
+      manifest_location = object({
+        bucket_name  = string
+        bucket_owner = string
+        prefix       = string
+        kms_key_arns = optional(set(string), [])
+      })
+
+      contract_location = object({
+        bucket_name  = string
+        bucket_owner = string
+        prefix       = string
+        kms_key_arns = optional(set(string), [])
+      })
+    }))
+  }))
+
+  default  = {}
+  nullable = false
+
+  validation {
+    condition = length(setsubtract(
+      toset(keys(var.raw_history_runtimes)),
+      toset([
+        for artifact in values(var.compiled_artifacts) :
+        artifact.runtime_configuration.source
+      ])
+    )) == 0
+
+    error_message = "Raw History deployments must reference configured service names."
+  }
+}

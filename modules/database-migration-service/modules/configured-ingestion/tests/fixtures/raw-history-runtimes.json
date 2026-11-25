@@ -1,0 +1,46 @@
+{
+  "sandbox-postgres": {
+    "configuration_store": {
+      "bucket_name": "example-config",
+      "bucket_owner": "111122223333",
+      "prefix": "components/raw-history/sandbox-postgres/",
+      "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/configuration-key"
+    },
+    "history_bucket": {
+      "bucket_name": "example-raw-history",
+      "bucket_owner": "111122223333",
+      "kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/history-key"
+    },
+    "operations_kms_key_arn": "arn:aws:kms:eu-west-2:111122223333:key/operations-key",
+    "tables": [
+      {
+        "schema_name": "public",
+        "table_name": "dms_integration_test",
+        "profile": "standard",
+        "history_prefix": "example-domain/dms_integration_test/",
+        "landings": [
+          {
+            "bucket_name": "example-development-raw",
+            "bucket_owner": "111122223333",
+            "prefix": "landing/development/sandbox-postgres/dms_test/integration/sandbox-v1/"
+          },
+          {
+            "bucket_name": "example-development-raw",
+            "bucket_owner": "111122223333",
+            "prefix": "landing/development/sandbox-postgres/dms_test/integration/sandbox-v2/"
+          }
+        ],
+        "manifest_location": {
+          "bucket_name": "example-config",
+          "bucket_owner": "111122223333",
+          "prefix": "raw-batches/sandbox-postgres/"
+        },
+        "contract_location": {
+          "bucket_name": "example-contracts",
+          "bucket_owner": "111122223333",
+          "prefix": "sandbox-postgres/dms_test/public/"
+        }
+      }
+    ]
+  }
+}
