@@ -4,6 +4,12 @@ from functools import lru_cache
 from typing import Any
 
 import boto3
+from botocore.config import Config
+
+from dms_runtime.batch_component_adapters import (
+    build_component_factories,
+    read_component_targets,
+)
 
 from dms_runtime.batch_downstream import BatchDownstream
 from dms_runtime.batch_handler import BatchHandler
@@ -131,6 +137,15 @@ def build_handler(
         raise ValueError("BATCH_RECONCILIATION_REQUIRED must be true or false")
     reconciliation_required = reconciliation_setting == "true"
 
+    targets = read_component_targets(
+        environment,
+        context=context,
+    )
+    if targets and adapter_factories is not None:
+        raise ValueError(
+            "Use configured targets or injected factories, not both"
+        )
+
     registry = IngestionRegistry(
         session.client("dynamodb", region_name=context.region),
         table_name=_required(environment, "INGESTION_REGISTRY_TABLE_NAME"),
@@ -147,6 +162,23 @@ def build_handler(
     )
     progress = IngestionProgress(registry)
     factories = dict(adapter_factories or {})
+    if targets:
+        factories = build_component_factories(
+            client=session.client(
+                "lambda",
+                config=Config(
+                    region_name=context.region,
+                    connect_timeout=5,
+                    read_timeout=45,
+                    retries={
+                        "mode": "standard",
+                        "total_max_attempts": 1,
+                    },
+                ),
+            ),
+            targets=targets,
+            context=context,
+        )
     context_version = environment.get("BATCH_CONTEXT_VERSION", "legacy")
     if context_version not in {"legacy", "1"}:
         raise ValueError(

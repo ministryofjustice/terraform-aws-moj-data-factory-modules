@@ -13,6 +13,7 @@ from botocore.exceptions import (
 )
 
 from ingestion_registry.references import S3ObjectReference
+from dms_runtime.downstream_context import validate_request_context
 
 
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -104,16 +105,26 @@ class S3ProcessingInputVerifier:
         *,
         raw_bucket_owner: str,
         contract_bucket_owner: str,
+        manifest_bucket_owner: str | None = None,
     ) -> None:
-        for owner in (raw_bucket_owner, contract_bucket_owner):
+        if manifest_bucket_owner is None:
+            manifest_bucket_owner = raw_bucket_owner
+        for owner in (
+            raw_bucket_owner,
+            contract_bucket_owner,
+            manifest_bucket_owner,
+        ):
             if not isinstance(owner, str) or not re.fullmatch(r"[0-9]{12}", owner):
                 raise ValueError("Bucket owners must be 12-digit account IDs")
 
         self._client = client
         self._raw_bucket_owner = raw_bucket_owner
         self._contract_bucket_owner = contract_bucket_owner
+        self._manifest_bucket_owner = manifest_bucket_owner
 
     def verify(self, request: Mapping[str, Any]) -> VerifiedProcessingInputs:
+        if "execution_context" in request:
+            validate_request_context(request)
         try:
             deployment = request["deployment"]
             table = {
@@ -161,7 +172,7 @@ class S3ProcessingInputVerifier:
 
         manifest = self._read_json(
             manifest_ref,
-            owner=self._raw_bucket_owner,
+            owner=self._manifest_bucket_owner,
             limit=MAX_MANIFEST_BYTES,
             label="Raw manifest",
         )
