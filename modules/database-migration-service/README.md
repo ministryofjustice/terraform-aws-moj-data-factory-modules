@@ -64,7 +64,7 @@ module "test_dms_implementation" {
     subnet_group_name          = "test-dms"
     allocated_storage          = 20
     availability_zone          = data.aws_availability_zones.available.names[0]
-    engine_version             = "3.5.4"
+    engine_version             = "3.6.1"
     kms_key_arn                = module.dms_test_kms.key_arn
     multi_az                   = false
     replication_instance_class = "dms.t3.medium"
