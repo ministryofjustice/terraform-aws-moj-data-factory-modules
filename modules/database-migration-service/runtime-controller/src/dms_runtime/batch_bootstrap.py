@@ -34,6 +34,11 @@ from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.lifecycle import IngestionLifecycle
 from ingestion_registry.ownership import OwnershipClaim
 from ingestion_registry.progress import IngestionProgress
+from dms_runtime.downstream_binding_lookup import DownstreamComponentLookup
+from dms_runtime.component_binding_action import (
+    ACTION as PIN_COMPONENT_ACTION,
+    build_component_binding_entry_point,
+)
 
 
 class BatchComponentUnavailable(RuntimeError):
@@ -198,13 +203,20 @@ def build_handler(
         return _ConfiguredBatchStage(
             component=component,
             stage_type=stage_type,
-            lookup=lookup,
+            lookup=(
+                DownstreamComponentLookup(
+                    lookup,
+                    component=component,
+                    registry=registry,
+                )
+                if context_version == "1"
+                else lookup
+            ),
             progress=progress,
             adapter_factory=factories.get(component),
             reconciliation_required=reconciliation_required,
             context_reader=context_reader,
         )
-
     downstream = BatchDownstream(
         resolve_deployment=lookup.resolve,
         read_stage=progress.read_stage,
@@ -240,12 +252,32 @@ def build_handler(
             else None
         ),
     )
-    return build_batch_entry_point(
+    batch_entry = build_batch_entry_point(
         handler=handler,
         registry=registry,
         check_scope=lookup.resolve,
     )
 
+    binding_entry = build_component_binding_entry_point(
+        registry=registry,
+        lookup=lookup,
+    )
+
+    def entry_point(event, context):
+        if (
+            isinstance(event, dict)
+            and event.get("action") == PIN_COMPONENT_ACTION
+        ):
+            if context_version != "1":
+                raise ValueError(
+                    "Component pinning requires BATCH_CONTEXT_VERSION=1"
+                )
+
+            return binding_entry(event, context)
+
+        return batch_entry(event, context)
+
+    return entry_point
 
 @lru_cache(maxsize=1)
 def _get_handler() -> Callable[[Any, Any], dict[str, str | int]]:

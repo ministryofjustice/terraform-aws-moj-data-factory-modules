@@ -19,6 +19,7 @@ from dms_runtime.raw_history_handler import RawHistoryHandler
 from ingestion_registry.admission import IngestionRegistry
 from ingestion_registry.identity import validate_database_identifier
 from ingestion_registry.references import S3ObjectReference
+from dms_runtime.downstream_binding_lookup import DownstreamComponentLookup
 
 
 MAX_BATCH_BYTES = 64 * 1024 * 1024
@@ -374,13 +375,19 @@ def build_handler(
     )
 
     documents = settings["published_documents"]
-    lookup = PinnedRuntimeLookup(
+    base_lookup = PinnedRuntimeLookup(
         registry,
         s3,
         context=context,
         allowed_bucket=documents["bucket_name"],
         allowed_prefix=documents["prefix"],
         expected_bucket_owner=documents["bucket_owner"],
+    )
+
+    lookup = DownstreamComponentLookup(
+        base_lookup,
+        component="raw_history",
+        registry=registry,
     )
 
     tables = {
