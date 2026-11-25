@@ -289,3 +289,212 @@ def test_bootstrap_selects_context_reader(
     else:
         assert result is None
         reader.assert_not_called()
+
+@pytest.mark.parametrize(
+    ("component", "action", "class_name", "stage"),
+    [
+        (
+            "processing",
+            "advance_processing",
+            "BatchProcessing",
+            "PROCESSING",
+        ),
+        (
+            "raw_history",
+            "advance_raw_history",
+            "BatchRawHistory",
+            "HISTORY_BASELINE",
+        ),
+        (
+            "publication",
+            "advance_publication",
+            "BatchPublication",
+            "PUBLICATION",
+        ),
+    ],
+)
+def test_context_v1_uses_component_lookup(
+    bootstrap_setup,
+    monkeypatch,
+    component,
+    action,
+    class_name,
+    stage,
+):
+    environment, event, base, progress, _ = bootstrap_setup
+    environment = {
+        **environment,
+        "BATCH_CONTEXT_VERSION": "1",
+    }
+
+    target = {
+        "profile": "standard",
+        "kind": "lambda",
+        "arn": (
+            "arn:aws:lambda:eu-west-2:111122223333:"
+            f"function:{component}:3"
+        ),
+    }
+    deployment = {
+        "component_bindings": {
+            component: target,
+        },
+        "downstream_binding": {
+            "component": component,
+            "binding_sha256": "d" * 64,
+        },
+    }
+
+    selected = Mock()
+    selected.resolve.return_value = deployment
+    lookups = {}
+
+    def component_lookup(
+        base_lookup,
+        *,
+        component,
+        registry,
+    ):
+        assert base_lookup is base
+
+        selected_component = deployment[
+            "downstream_binding"
+        ]["component"]
+
+        lookups[component] = (
+            selected
+            if component == selected_component
+            else Mock()
+        )
+        return lookups[component]
+
+    monkeypatch.setattr(
+        batch_bootstrap,
+        "DownstreamComponentLookup",
+        component_lookup,
+    )
+
+    operation = Mock()
+    operation.advance.return_value = {
+        "stage": stage,
+        "status": "RUNNING",
+    }
+    stage_factory = Mock(return_value=operation)
+
+    monkeypatch.setattr(
+        batch_bootstrap,
+        class_name,
+        stage_factory,
+    )
+
+    adapter_factory = Mock()
+
+    handler = batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+        adapter_factories={
+            component: adapter_factory,
+        },
+    )
+
+    result = handler(
+        {**event, "action": action},
+        None,
+    )
+
+    assert result["status"] == "RUNNING"
+    assert set(lookups) == {
+        "processing",
+        "raw_history",
+        "publication",
+    }
+
+    selected.resolve.assert_called_once_with(
+        event["ingestion_id"]
+    )
+    adapter_factory.assert_called_once_with(target)
+
+    downstream = stage_factory.call_args.kwargs["downstream"]
+
+    assert downstream._resolve_deployment(
+        event["ingestion_id"]
+    ) == deployment
+
+    base.resolve.assert_called_once_with(
+        event["ingestion_id"]
+    )
+
+
+def test_legacy_bootstrap_keeps_original_lookup(
+    bootstrap_setup,
+    monkeypatch,
+):
+    environment, _, _, _, _ = bootstrap_setup
+    factory = Mock()
+
+    monkeypatch.setattr(
+        batch_bootstrap,
+        "DownstreamComponentLookup",
+        factory,
+    )
+
+    batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+    )
+
+    factory.assert_not_called()
+
+@pytest.mark.parametrize(
+    "context_version",
+    ["legacy", "1"],
+)
+def test_bootstrap_routes_explicit_component_pin(
+    bootstrap_setup,
+    monkeypatch,
+    context_version,
+):
+    environment, _, lookup, _, _ = bootstrap_setup
+
+    environment = {
+        **environment,
+        "BATCH_CONTEXT_VERSION": context_version,
+    }
+
+    selected = Mock(
+        return_value={"status": "PINNED"}
+    )
+    factory = Mock(return_value=selected)
+
+    monkeypatch.setattr(
+        batch_bootstrap,
+        "build_component_binding_entry_point",
+        factory,
+    )
+
+    handler = batch_bootstrap.build_handler(
+        environment,
+        session=Mock(),
+    )
+
+    event = {
+        "action": "pin_downstream_component",
+    }
+
+    if context_version == "1":
+        assert handler(event, None) == {
+            "status": "PINNED",
+        }
+
+        selected.assert_called_once_with(event, None)
+
+        assert factory.call_args.kwargs["lookup"] is lookup
+
+    else:
+        with pytest.raises(
+            ValueError,
+            match="BATCH_CONTEXT_VERSION=1",
+        ):
+            handler(event, None)
+
+        selected.assert_not_called()

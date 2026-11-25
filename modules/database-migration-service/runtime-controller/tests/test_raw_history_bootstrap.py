@@ -152,6 +152,12 @@ def setup(context_request, monkeypatch):
         },
     }
 
+    registry._read.side_effect = lambda pk, sk: (
+        registry._read.return_value
+        if sk == "STAGE#EXTRACTION"
+        else None
+    )
+
     lookup = Mock()
     lookup.resolve.return_value = deepcopy(request["deployment"])
 
@@ -488,3 +494,67 @@ def test_deployment_comparison_preserves_json_types(setup):
         build(setup).handle(event)
 
     assert setup["operations"].scan()["Count"] == 0
+
+@pytest.mark.parametrize(
+    "matching_request",
+    [True, False],
+)
+def test_receiver_uses_component_lookup(
+    setup,
+    monkeypatch,
+    matching_request,
+):
+    event = deepcopy(setup["event"])
+    resolved = deepcopy(event["request"]["deployment"])
+
+    resolved["downstream_binding"] = {
+        "component": "raw_history",
+        "binding_sha256": "d" * 64,
+    }
+
+    setup["lookup"].resolve.return_value[
+        "component_bindings"
+    ] = {}
+
+    selected = Mock()
+    selected.resolve.return_value = resolved
+    factory = Mock(return_value=selected)
+
+    monkeypatch.setattr(
+        bootstrap,
+        "DownstreamComponentLookup",
+        factory,
+    )
+
+    if matching_request:
+        event["request"]["deployment"] = deepcopy(resolved)
+        event["request_fingerprint"] = digest(
+            event["request"]
+        )
+
+    handler = build(setup)
+
+    factory.assert_called_once_with(
+        setup["lookup"],
+        component="raw_history",
+        registry=setup["registry"],
+    )
+
+    if matching_request:
+        result = handler.handle(event)
+
+        assert result["status"] == "SUCCEEDED"
+        assert setup["reader"].call_args.kwargs[
+            "lookup"
+        ] is selected
+
+    else:
+        with pytest.raises(
+            RuntimeScopeDenied,
+            match="pinned deployment",
+        ):
+            handler.handle(event)
+
+        assert setup["operations"].scan()["Items"] == []
+
+    selected.resolve.assert_called()
