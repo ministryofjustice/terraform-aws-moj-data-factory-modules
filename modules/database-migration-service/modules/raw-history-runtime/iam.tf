@@ -134,6 +134,15 @@ data "aws_iam_policy_document" "runtime" {
   }
 
   statement {
+    sid     = "CheckHistoryCommitExistence"
+    effect  = "Allow"
+    actions = ["s3:ListBucket"]
+    resources = [
+      "${local.s3_arn_prefix}${var.history_bucket.bucket_name}",
+    ]
+  }
+
+  statement {
     sid    = "ManageHistoryObjects"
     effect = "Allow"
 

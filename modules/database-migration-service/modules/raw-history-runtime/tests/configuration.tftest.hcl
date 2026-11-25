@@ -312,3 +312,33 @@ run "supports_maximum_length_function_name" {
     error_message = "A 64-character Lambda name must produce an IAM role prefix within the provider's 38-character limit."
   }
 }
+
+run "allows_missing_commit_detection_on_history_bucket" {
+  command = plan
+
+  assert {
+    condition = (
+      toset(one([
+        for statement in data.aws_iam_policy_document.runtime.statement :
+        statement
+        if statement.sid == "CheckHistoryCommitExistence"
+      ]).actions) == toset(["s3:ListBucket"])
+    )
+
+    error_message = "Commit lookup must have ListBucket permission to distinguish missing evidence from access denial."
+  }
+
+  assert {
+    condition = (
+      toset(one([
+        for statement in data.aws_iam_policy_document.runtime.statement :
+        statement
+        if statement.sid == "CheckHistoryCommitExistence"
+        ]).resources) == toset([
+        "arn:aws:s3:::example-raw-history",
+      ])
+    )
+
+    error_message = "Listing permission must be restricted to the configured history bucket."
+  }
+}
