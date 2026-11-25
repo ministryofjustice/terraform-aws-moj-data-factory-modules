@@ -37,3 +37,9 @@ output "retained_inventory" {
     compiled_artifacts = var.compiled_artifacts
   }
 }
+
+output "raw_history_runtimes" {
+  description = "Raw History receivers, immutable configuration references and published component targets keyed by service."
+
+  value = local.raw_history_runtime_outputs
+}
