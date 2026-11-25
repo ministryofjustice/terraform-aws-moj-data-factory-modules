@@ -55,7 +55,7 @@ data "aws_iam_policy_document" "assume_role" {
 }
 
 resource "aws_iam_role" "runtime" {
-  name_prefix = "${substr(var.function_name, 0, 32)}-history-"
+  name_prefix = "${substr(var.function_name, 0, 29)}-history-"
 
   assume_role_policy = data.aws_iam_policy_document.assume_role.json
 

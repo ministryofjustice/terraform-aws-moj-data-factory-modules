@@ -294,3 +294,21 @@ run "history_access_does_not_allow_deletion" {
     error_message = "Raw inputs, contracts and manifests must be read through pinned object versions."
   }
 }
+
+run "supports_maximum_length_function_name" {
+  command = plan
+
+  variables {
+    function_name = "raw-history-${join("", [for index in range(52) : "a"])}"
+  }
+
+  assert {
+    condition = (
+      length(var.function_name) == 64 &&
+      length(aws_iam_role.runtime.name_prefix) <= 38 &&
+      endswith(aws_iam_role.runtime.name_prefix, "-history-")
+    )
+
+    error_message = "A 64-character Lambda name must produce an IAM role prefix within the provider's 38-character limit."
+  }
+}
