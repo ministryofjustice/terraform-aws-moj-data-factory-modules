@@ -28,6 +28,7 @@ variable "dms_replication_instance" {
     inbound_cidr                 = optional(string)
     apply_immediately            = optional(bool, false)
     preferred_maintenance_window = optional(string, "sun:10:30-sun:14:30")
+    allow_major_version_upgrade  = optional(bool, false)
   })
 
   validation {

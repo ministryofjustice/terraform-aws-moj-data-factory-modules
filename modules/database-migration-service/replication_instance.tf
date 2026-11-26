@@ -54,6 +54,7 @@ resource "aws_dms_replication_instance" "instance" {
   replication_instance_id      = var.dms_replication_instance.replication_instance_id
   replication_subnet_group_id  = var.dms_replication_instance.subnet_group_id == null ? aws_dms_replication_subnet_group.replication_subnet_group[0].id : var.dms_replication_instance.subnet_group_id
   vpc_security_group_ids       = [aws_security_group.replication_instance.id]
+  allow_major_version_upgrade  = var.dms_replication_instance.allow_major_version_upgrade
 
   tags = merge({ Name = var.dms_replication_instance.replication_instance_id },
     var.tags
