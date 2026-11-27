@@ -163,6 +163,8 @@ The inputs, outputs, providers and resources below are generated from the Terraf
 configuration using `terraform-docs`.
 
 <!-- BEGIN_TF_DOCS -->
+<!-- markdownlint-disable -->
+<!-- prettier-ignore-start -->
 ## Requirements
 
 | Name | Version |
@@ -208,4 +210,6 @@ No modules.
 | <a name="output_replication_security_group_id"></a> [replication\_security\_group\_id](#output\_replication\_security\_group\_id) | ID of the security group created by this module for the DMS replication instance. |
 | <a name="output_replication_security_group_ids"></a> [replication\_security\_group\_ids](#output\_replication\_security\_group\_ids) | Security group IDs attached to the DMS replication instance. |
 | <a name="output_replication_subnet_group_id"></a> [replication\_subnet\_group\_id](#output\_replication\_subnet\_group\_id) | ID of the DMS replication subnet group used by the replication instance. |
+<!-- prettier-ignore-end -->
+<!-- markdownlint-enable -->
 <!-- END_TF_DOCS -->
