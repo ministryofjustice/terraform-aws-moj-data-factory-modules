@@ -81,6 +81,7 @@ with tempfile.TemporaryDirectory(
                 "dist",
                 "__pycache__",
                 ".pytest_cache",
+                ".terraform",
                 "*.egg-info",
                 ".venv",
                 "venv",
@@ -239,6 +240,7 @@ with tempfile.TemporaryDirectory(
     # Import from the installed package in a separate Python process.
     smoke_test = """
 import jsonschema
+import pyarrow.parquet
 import rpds
 import yaml
 import yaml._yaml
@@ -247,6 +249,7 @@ from dms_runtime.lambda_function import lambda_handler
 from dms_runtime.contract_lambda_function import (
     lambda_handler as contract_lambda_handler,
 )
+from dms_runtime.processing_lambda_function import receiver_handler, stream_handler
 from ingestion_config.schema import load_schema
 from ingestion_registry.admission import IngestionRegistry
 
@@ -255,6 +258,8 @@ jsonschema.Draft202012Validator.check_schema(schema)
 
 assert callable(lambda_handler)
 assert callable(contract_lambda_handler)
+assert callable(receiver_handler)
+assert callable(stream_handler)
 print("PASS: shared packages and native dependencies import")
 print("PASS: deployment schema loads and validates")
 """
@@ -386,7 +391,7 @@ def build(architecture: str) -> Path:
             PLATFORMS[architecture],
             "--read-only",
             "--tmpfs",
-            "/tmp:rw,exec,size=1g",
+            "/tmp:rw,exec,size=2g",
             "--env",
             "PIP_NO_CACHE_DIR=1",
             "--env",

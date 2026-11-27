@@ -307,3 +307,70 @@ run "reject_history_profile_missing_from_yaml" {
     terraform_data.raw_history_contract["sandbox-postgres"],
   ]
 }
+
+run "processing_is_disabled_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(output.processing_runtimes) == 0
+    error_message = "Processing must be explicitly enabled per service."
+  }
+}
+
+run "processing_exposes_the_published_receiver_for_one_service" {
+  command = plan
+
+  variables {
+    processing_runtimes = {
+      sandbox-postgres = {
+        operations_kms_key_arn = "arn:aws:kms:eu-west-2:111122223333:key/11111111-1111-4111-8111-111111111111"
+
+        input_bucket_owners = {
+          raw      = "111122223333"
+          manifest = "111122223333"
+          contract = "111122223333"
+        }
+
+        input_locations = {
+          raw      = { bucket_name = "example-raw", prefix = "landing/" }
+          manifest = { bucket_name = "example-manifests", prefix = "batches/" }
+          contract = { bucket_name = "example-contracts", prefix = "contracts/" }
+        }
+
+        output = {
+          bucket_name  = "example-processing"
+          bucket_owner = "111122223333"
+          prefix       = "processing/"
+        }
+
+        max_batch_bytes = 1048576
+      }
+    }
+  }
+
+  override_module {
+    target = module.processing["sandbox-postgres"]
+
+    outputs = {
+      qualified_function_arn = "arn:aws:lambda:eu-west-2:111122223333:function:sandbox-sandbox-postgres-processing:7"
+    }
+  }
+
+  assert {
+    condition     = toset(keys(output.processing_runtimes)) == toset(["sandbox-postgres"])
+    error_message = "Only sandbox-postgres should expose a Processing runtime."
+  }
+
+  assert {
+    condition = output.processing_runtimes["sandbox-postgres"].component_targets["standard"] == {
+      kind = "lambda"
+      arn  = "arn:aws:lambda:eu-west-2:111122223333:function:sandbox-sandbox-postgres-processing:7"
+    }
+    error_message = "The standard profile must point to the published receiver version."
+  }
+
+  assert {
+    condition     = length(output.deployments) == 3
+    error_message = "Enabling Processing must retain the existing ingestion deployments."
+  }
+}

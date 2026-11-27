@@ -3,3 +3,5 @@
 
 # AWS dependency shared by the runtime and registry packages.
 boto3>=1.35,<2.0
+
+pyarrow==26.0.1
