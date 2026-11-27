@@ -269,3 +269,32 @@ variable "raw_history_runtimes" {
     error_message = "Raw History deployments must reference configured service names."
   }
 }
+
+variable "processing_runtimes" {
+  description = "Optional standard Processing runtimes keyed by configured service name."
+
+  type = map(object({
+    operations_kms_key_arn = string
+    input_bucket_owners = object({
+      raw      = string
+      manifest = string
+      contract = string
+    })
+    input_locations = map(object({
+      bucket_name = string
+      prefix      = string
+    }))
+    input_kms_key_arns = optional(set(string), [])
+    output = object({
+      bucket_name  = string
+      bucket_owner = string
+      prefix       = string
+    })
+    output_kms_key_arn          = optional(string)
+    max_batch_bytes             = number
+    deletion_protection_enabled = optional(bool, true)
+  }))
+
+  default  = {}
+  nullable = false
+}

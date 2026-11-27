@@ -43,3 +43,21 @@ output "raw_history_runtimes" {
 
   value = local.raw_history_runtime_outputs
 }
+
+output "processing_runtimes" {
+  description = "Published Processing receiver targets keyed by configured service."
+
+  value = {
+    for service, runtime in module.processing :
+    service => {
+      qualified_function_arn = runtime.qualified_function_arn
+
+      component_targets = {
+        standard = {
+          kind = "lambda"
+          arn  = runtime.qualified_function_arn
+        }
+      }
+    }
+  }
+}
